@@ -1,4 +1,4 @@
-//go:build tinygo.wasm && !wasm_unknown && !wasip2
+//go:build tinygo.wasm && wasip2
 
 package runtime
 
@@ -6,43 +6,44 @@ import (
 	"unsafe"
 )
 
-// Implements __wasi_iovec_t.
-type __wasi_iovec_t struct {
-	buf    unsafe.Pointer
-	bufLen uint
+type __wasi_io_stream_list struct {
+	buf unsafe.Pointer
+	len uint32
 }
 
-//go:wasmimport wasi_snapshot_preview1 fd_write
-func fd_write(id uint32, iovs *__wasi_iovec_t, iovs_len uint, nwritten *uint) (errno uint)
+//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-11-10 get-stdout
+func __wasi_cli_stdout_get_stdout() int32
 
-// See:
-// https://github.com/WebAssembly/WASI/blob/main/phases/snapshot/docs.md#-proc_exitrval-exitcode
-//
-//go:wasmimport wasi_snapshot_preview1 proc_exit
-func proc_exit(exitcode uint32)
+//go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]output-stream.blocking-write-and-flush
+func __wasi_io_streams_blocking_write_and_flush(stream int32, buf __wasi_io_stream_list, err unsafe.Pointer)
+
+//go:wasmimport wasi:cli/exit@0.2.0-rc-2023-11-10 exit
+func __wasi_exit_exit(status uint32)
 
 const (
 	putcharBufferSize = 120
-	stdout            = 1
 )
 
 // Using global variables to avoid heap allocation.
 var (
-	putcharBuffer        = [putcharBufferSize]byte{}
-	putcharPosition uint = 0
-	putcharIOVec         = __wasi_iovec_t{
+	stdout                 = __wasi_cli_stdout_get_stdout()
+	putcharBuffer          = [putcharBufferSize]byte{}
+	putcharPosition uint32 = 0
+	putcharList            = __wasi_io_stream_list{
 		buf: unsafe.Pointer(&putcharBuffer[0]),
 	}
-	putcharNWritten uint
 )
 
 func putchar(c byte) {
 	putcharBuffer[putcharPosition] = c
 	putcharPosition++
 
+	var err uint64
+
 	if c == '\n' || putcharPosition >= putcharBufferSize {
-		putcharIOVec.bufLen = putcharPosition
-		fd_write(stdout, &putcharIOVec, 1, &putcharNWritten)
+		putcharList.len = putcharPosition
+		// TODO(dgryski): need actual ptr for error return
+		__wasi_io_streams_blocking_write_and_flush(stdout, putcharList, unsafe.Pointer(&err))
 		putcharPosition = 0
 	}
 }
@@ -72,7 +73,7 @@ func abort() {
 
 //go:linkname syscall_Exit syscall.Exit
 func syscall_Exit(code int) {
-	proc_exit(uint32(code))
+	__wasi_exit_exit(uint32(code))
 }
 
 // TinyGo does not yet support any form of parallelism on WebAssembly, so these
@@ -85,14 +86,3 @@ func procPin() {
 //go:linkname procUnpin sync/atomic.runtime_procUnpin
 func procUnpin() {
 }
-
-func hardwareRand() (n uint64, ok bool) {
-	n |= uint64(libc_arc4random())
-	n |= uint64(libc_arc4random()) << 32
-	return n, true
-}
-
-// uint32_t arc4random(void);
-//
-//export arc4random
-func libc_arc4random() uint32
