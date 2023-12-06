@@ -1,0 +1,5 @@
+{
+	"inherits": ["wasi"],
+	"build-tags":    ["wasip2"],
+	"emulator":      "wasmtime --wasm component-model --dir={tmpDir}::/tmp {}"
+}
