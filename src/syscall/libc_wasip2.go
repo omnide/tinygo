@@ -152,9 +152,6 @@ func unlink(pathname *byte) int32 {
 	return 0
 }
 
-//go:export environ
-var environ *unsafe.Pointer
-
 // int getpagesize(void);
 //
 //go:export getpagesize
