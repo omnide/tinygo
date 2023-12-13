@@ -118,7 +118,8 @@ const (
 	PATH_MAX = 4096
 )
 
-//go:extern errno
+// TODO(dgryski): Need to figure out hack to make libcErrno work with wasip1 and wasip2.  Build tags and separate file would work.
+// This pragma doesn't work for variables: //go:extern errno
 var libcErrno uintptr
 
 func getErrno() error {
@@ -195,6 +196,7 @@ const (
 	ENOTCONN        Errno = 53         /* Socket is not connected */
 	ENOTDIR         Errno = 54         /* Not a directory */
 	ENOTEMPTY       Errno = 55         /* Directory not empty */
+	ENOTRECOVERABLE Errno = 56         /* State not recoverable */
 	ENOTSOCK        Errno = 57         /* Socket operation on non-socket */
 	ESOCKTNOSUPPORT Errno = 58         /* Socket type not supported */
 	EOPNOTSUPP      Errno = 58         /* Operation not supported on transport endpoint */
@@ -213,6 +215,7 @@ const (
 	ESRCH           Errno = 71         /* No such process */
 	ESTALE          Errno = 72
 	ETIMEDOUT       Errno = 73 /* Connection timed out */
+	ETXTBSY         Errno = 74 /* Text file busy */
 	EXDEV           Errno = 75 /* Cross-device link */
 	ENOTCAPABLE     Errno = 76 /* Extension: Capabilities insufficient. */
 )
