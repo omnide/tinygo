@@ -220,8 +220,28 @@ func lseek(fd int32, offset int64, whence int) int64 {
 //
 //go:export close
 func close(fd int32) int32 {
+	streams, ok := wasiStreams[fd]
+	if !ok {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+
+	if streams.in != -1 {
+		__wasi_io_streams_resource_drop_input_stream(streams.in)
+	}
+
+	if streams.out != -1 {
+		__wasi_io_streams_resource_drop_output_stream(streams.out)
+	}
+
 	return 0
 }
+
+//go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [resource-drop]input-stream
+func __wasi_io_streams_resource_drop_input_stream(stream inputStream)
+
+//go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [resource-drop]output-stream
+func __wasi_io_streams_resource_drop_output_stream(stream outputStream)
 
 // int dup(int fd)
 //
