@@ -25,6 +25,54 @@ func strlen(ptr unsafe.Pointer) uintptr {
 //
 //go:export write
 func write(fd int32, buf *byte, count uint) int {
+	streams, ok := wasiStreams[fd]
+	if !ok {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+	wasifd := streams.out
+	if wasifd == -1 {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+
+	ptr := unsafe.Pointer(buf)
+
+	var ret [12]byte
+
+	libcErrno = 0
+
+	// The blocking-write-and-flush call allows a maximum of 4096 bytes at a time.
+	// We loop here by instead of doing subscribe/check-write/poll-one/write by hand.
+	for count > 0 {
+		len := uint(4096)
+		if len > count {
+			len = count
+		}
+		list_u8 := __wasi_list_u8{
+			data: ptr, len: uintptr(len),
+		}
+
+		__wasi_io_streams_method_input_stream_blocking_write_and_flush(wasifd, list_u8.data, list_u8.len, unsafe.Pointer(&ret))
+		result := (*__wasi_result)(unsafe.Pointer(&ret))
+		if result.isErr {
+			stream_error_tag := (*__wasi_io_stream_error_tag)(unsafe.Add(unsafe.Pointer(&ret), 4))
+			switch stream_error_tag.tag {
+			case 0: // last operation failed
+				var0 := (*__wasi_io_stream_error_variant_last_operation_failed)(unsafe.Add(unsafe.Pointer(&ret), 8))
+				wasiErrno = __wasi_io_error_to_error(var0.err)
+				libcErrno = uintptr(EWASIERROR)
+				return -1
+
+			case 1: // closed == EOF was reached
+				libcErrno = 0
+			}
+		}
+		streams.outoffs += list_u8.len
+		ptr = unsafe.Add(ptr, list_u8.len)
+		count -= uint(list_u8.len)
+	}
+
 	return 0
 }
 
@@ -143,6 +191,9 @@ type __wasi_io_stream_error_variant_closed struct {
 
 //go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]input-stream.blocking-read
 func __wasi_io_streams_method_input_stream_blocking_read(self inputStream, len int64, ret unsafe.Pointer)
+
+//go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]output-stream.blocking-write-and-flush
+func __wasi_io_streams_method_input_stream_blocking_write_and_flush(self outputStream, list_u8_data unsafe.Pointer, list_u8_len uintptr, ret unsafe.Pointer)
 
 // ssize_t pread(int fd, void *buf, size_t count, off_t offset);
 //
@@ -466,50 +517,50 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.read-via-stream
 func __wasi_filesystem_types_method_descriptor_read_via_stream(d descriptor, offset int64, ret *__wasi_result_descriptor_error)
 
-//go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.read-via-stream
+//go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.write-via-stream
 func __wasi_filesystem_types_method_descriptor_write_via_stream(d descriptor, offset int64, ret *__wasi_result_descriptor_error)
 
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.append-via-stream
 func __wasi_filesystem_types_method_descriptor_append_via_stream(d descriptor, ret *__wasi_result_descriptor_error)
 
 const (
-	__wasi_filesystem_error_access                __wasi_filesystem_error = iota + 1 /// Permission denied, similar to `EACCES` in POSIX.
-	__wasi_filesystem_error_would_block                                              /// Resource unavailable, or operation would block, similar to `EAGAIN` and `EWOULDBLOCK` in POSIX.
-	__wasi_filesystem_error_already                                                  /// Connection already in progress, similar to `EALREADY` in POSIX.
-	__wasi_filesystem_error_bad_descriptor                                           /// Bad descriptor, similar to `EBADF` in POSIX.
-	__wasi_filesystem_error_busy                                                     /// Device or resource busy, similar to `EBUSY` in POSIX.
-	__wasi_filesystem_error_deadlock                                                 /// Resource deadlock would occur, similar to `EDEADLK` in POSIX.
-	__wasi_filesystem_error_quota                                                    /// Storage quota exceeded, similar to `EDQUOT` in POSIX.
-	__wasi_filesystem_error_exist                                                    /// File exists, similar to `EEXIST` in POSIX.
-	__wasi_filesystem_error_file_too_large                                           /// File too large, similar to `EFBIG` in POSIX.
-	__wasi_filesystem_error_illegal_byte_sequence                                    /// Illegal byte sequence, similar to `EILSEQ` in POSIX.
-	__wasi_filesystem_error_in_progress                                              /// Operation in progress, similar to `EINPROGRESS` in POSIX.
-	__wasi_filesystem_error_interrupted                                              /// Interrupted function, similar to `EINTR` in POSIX.
-	__wasi_filesystem_error_invalid                                                  /// Invalid argument, similar to `EINVAL` in POSIX.
-	__wasi_filesystem_error_io                                                       /// I/O error, similar to `EIO` in POSIX.
-	__wasi_filesystem_error_is_directory                                             /// Is a directory, similar to `EISDIR` in POSIX.
-	__wasi_filesystem_error_loop                                                     /// Too many levels of symbolic links, similar to `ELOOP` in POSIX.
-	__wasi_filesystem_error_too_many_links                                           /// Too many links, similar to `EMLINK` in POSIX.
-	__wasi_filesystem_error_message_size                                             /// Message too large, similar to `EMSGSIZE` in POSIX.
-	__wasi_filesystem_error_name_too_long                                            /// Filename too long, similar to `ENAMETOOLONG` in POSIX.
-	__wasi_filesystem_error_no_device                                                /// No such device, similar to `ENODEV` in POSIX.
-	__wasi_filesystem_error_no_entry                                                 /// No such file or directory, similar to `ENOENT` in POSIX.
-	__wasi_filesystem_error_no_lock                                                  /// No locks available, similar to `ENOLCK` in POSIX.
-	__wasi_filesystem_error_insufficient_memory                                      /// Not enough space, similar to `ENOMEM` in POSIX.
-	__wasi_filesystem_error_insufficient_space                                       /// No space left on device, similar to `ENOSPC` in POSIX.
-	__wasi_filesystem_error_not_directory                                            /// Not a directory or a symbolic link to a directory, similar to `ENOTDIR` in POSIX.
-	__wasi_filesystem_error_not_empty                                                /// Directory not empty, similar to `ENOTEMPTY` in POSIX.
-	__wasi_filesystem_error_not_recoverable                                          /// State not recoverable, similar to `ENOTRECOVERABLE` in POSIX.
-	__wasi_filesystem_error_unsupported                                              /// Not supported, similar to `ENOTSUP` and `ENOSYS` in POSIX.
-	__wasi_filesystem_error_no_tty                                                   /// Inappropriate I/O control operation, similar to `ENOTTY` in POSIX.
-	__wasi_filesystem_error_no_such_device                                           /// No such device or address, similar to `ENXIO` in POSIX.
-	__wasi_filesystem_error_overflow                                                 /// Value too large to be stored in data type, similar to `EOVERFLOW` in POSIX.
-	__wasi_filesystem_error_not_permitted                                            /// Operation not permitted, similar to `EPERM` in POSIX.
-	__wasi_filesystem_error_pipe                                                     /// Broken pipe, similar to `EPIPE` in POSIX.
-	__wasi_filesystem_error_read_only                                                /// Read_only file system, similar to `EROFS` in POSIX.
-	__wasi_filesystem_error_invalid_seek                                             /// Invalid seek, similar to `ESPIPE` in POSIX.
-	__wasi_filesystem_error_text_file_busy                                           /// Text file busy, similar to `ETXTBSY` in POSIX.
-	__wasi_filesystem_error_cross_device                                             /// Cross_device link, similar to `EXDEV` in POSIX.
+	__wasi_filesystem_error_access                __wasi_filesystem_error = iota /// Permission denied, similar to `EACCES` in POSIX.
+	__wasi_filesystem_error_would_block                                          /// Resource unavailable, or operation would block, similar to `EAGAIN` and `EWOULDBLOCK` in POSIX.
+	__wasi_filesystem_error_already                                              /// Connection already in progress, similar to `EALREADY` in POSIX.
+	__wasi_filesystem_error_bad_descriptor                                       /// Bad descriptor, similar to `EBADF` in POSIX.
+	__wasi_filesystem_error_busy                                                 /// Device or resource busy, similar to `EBUSY` in POSIX.
+	__wasi_filesystem_error_deadlock                                             /// Resource deadlock would occur, similar to `EDEADLK` in POSIX.
+	__wasi_filesystem_error_quota                                                /// Storage quota exceeded, similar to `EDQUOT` in POSIX.
+	__wasi_filesystem_error_exist                                                /// File exists, similar to `EEXIST` in POSIX.
+	__wasi_filesystem_error_file_too_large                                       /// File too large, similar to `EFBIG` in POSIX.
+	__wasi_filesystem_error_illegal_byte_sequence                                /// Illegal byte sequence, similar to `EILSEQ` in POSIX.
+	__wasi_filesystem_error_in_progress                                          /// Operation in progress, similar to `EINPROGRESS` in POSIX.
+	__wasi_filesystem_error_interrupted                                          /// Interrupted function, similar to `EINTR` in POSIX.
+	__wasi_filesystem_error_invalid                                              /// Invalid argument, similar to `EINVAL` in POSIX.
+	__wasi_filesystem_error_io                                                   /// I/O error, similar to `EIO` in POSIX.
+	__wasi_filesystem_error_is_directory                                         /// Is a directory, similar to `EISDIR` in POSIX.
+	__wasi_filesystem_error_loop                                                 /// Too many levels of symbolic links, similar to `ELOOP` in POSIX.
+	__wasi_filesystem_error_too_many_links                                       /// Too many links, similar to `EMLINK` in POSIX.
+	__wasi_filesystem_error_message_size                                         /// Message too large, similar to `EMSGSIZE` in POSIX.
+	__wasi_filesystem_error_name_too_long                                        /// Filename too long, similar to `ENAMETOOLONG` in POSIX.
+	__wasi_filesystem_error_no_device                                            /// No such device, similar to `ENODEV` in POSIX.
+	__wasi_filesystem_error_no_entry                                             /// No such file or directory, similar to `ENOENT` in POSIX.
+	__wasi_filesystem_error_no_lock                                              /// No locks available, similar to `ENOLCK` in POSIX.
+	__wasi_filesystem_error_insufficient_memory                                  /// Not enough space, similar to `ENOMEM` in POSIX.
+	__wasi_filesystem_error_insufficient_space                                   /// No space left on device, similar to `ENOSPC` in POSIX.
+	__wasi_filesystem_error_not_directory                                        /// Not a directory or a symbolic link to a directory, similar to `ENOTDIR` in POSIX.
+	__wasi_filesystem_error_not_empty                                            /// Directory not empty, similar to `ENOTEMPTY` in POSIX.
+	__wasi_filesystem_error_not_recoverable                                      /// State not recoverable, similar to `ENOTRECOVERABLE` in POSIX.
+	__wasi_filesystem_error_unsupported                                          /// Not supported, similar to `ENOTSUP` and `ENOSYS` in POSIX.
+	__wasi_filesystem_error_no_tty                                               /// Inappropriate I/O control operation, similar to `ENOTTY` in POSIX.
+	__wasi_filesystem_error_no_such_device                                       /// No such device or address, similar to `ENXIO` in POSIX.
+	__wasi_filesystem_error_overflow                                             /// Value too large to be stored in data type, similar to `EOVERFLOW` in POSIX.
+	__wasi_filesystem_error_not_permitted                                        /// Operation not permitted, similar to `EPERM` in POSIX.
+	__wasi_filesystem_error_pipe                                                 /// Broken pipe, similar to `EPIPE` in POSIX.
+	__wasi_filesystem_error_read_only                                            /// Read_only file system, similar to `EROFS` in POSIX.
+	__wasi_filesystem_error_invalid_seek                                         /// Invalid seek, similar to `ESPIPE` in POSIX.
+	__wasi_filesystem_error_text_file_busy                                       /// Text file busy, similar to `ETXTBSY` in POSIX.
+	__wasi_filesystem_error_cross_device                                         /// Cross_device link, similar to `EXDEV` in POSIX.
 )
 
 func __wasi_filesystem_err_to_errno(err __wasi_filesystem_error) Errno {
