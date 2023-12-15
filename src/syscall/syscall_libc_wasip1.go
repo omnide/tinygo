@@ -70,9 +70,10 @@ const (
 	__WASI_FILETYPE_SYMBOLIC_LINK    = 7
 
 	// ../../lib/wasi-libc/libc-bottom-half/headers/public/__header_fcntl.h
-	O_RDONLY = 0x04000000
-	O_WRONLY = 0x10000000
-	O_RDWR   = O_RDONLY | O_WRONLY
+	O_NOFOLLOW = 0x01000000
+	O_RDONLY   = 0x04000000
+	O_WRONLY   = 0x10000000
+	O_RDWR     = O_RDONLY | O_WRONLY
 
 	O_CREAT     = __WASI_OFLAGS_CREAT << 12
 	O_TRUNC     = __WASI_OFLAGS_TRUNC << 12
@@ -218,6 +219,8 @@ const (
 	ETXTBSY         Errno = 74 /* Text file busy */
 	EXDEV           Errno = 75 /* Cross-device link */
 	ENOTCAPABLE     Errno = 76 /* Extension: Capabilities insufficient. */
+
+	EWASIERROR Errno = 255 /* Unknown WASI error */
 )
 
 // https://github.com/WebAssembly/wasi-libc/blob/main/libc-bottom-half/headers/public/__struct_timespec.h
