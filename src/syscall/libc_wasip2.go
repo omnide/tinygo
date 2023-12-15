@@ -83,17 +83,17 @@ func getenv(name *byte) *byte {
 	return nil
 }
 
-type descriptor int32
+type __wasi_filesystem_descriptor int32
 
-type inputStream int32
+type __wasi_io_streams_input_stream int32
 
-type outputStream int32
+type __wasi_io_streams_output_stream int32
 
 type wasiFile struct {
-	d       descriptor
-	in      inputStream
+	d       __wasi_filesystem_descriptor
+	in      __wasi_io_streams_input_stream
 	inoffs  uintptr
-	out     outputStream
+	out     __wasi_io_streams_output_stream
 	outoffs uintptr
 }
 
@@ -190,10 +190,10 @@ type __wasi_io_stream_error_variant_closed struct {
 }
 
 //go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]input-stream.blocking-read
-func __wasi_io_streams_method_input_stream_blocking_read(self inputStream, len int64, ret unsafe.Pointer)
+func __wasi_io_streams_method_input_stream_blocking_read(self __wasi_io_streams_input_stream, len int64, ret unsafe.Pointer)
 
 //go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]output-stream.blocking-write-and-flush
-func __wasi_io_streams_method_input_stream_blocking_write_and_flush(self outputStream, list_u8_data unsafe.Pointer, list_u8_len uintptr, ret unsafe.Pointer)
+func __wasi_io_streams_method_input_stream_blocking_write_and_flush(self __wasi_io_streams_output_stream, list_u8_data unsafe.Pointer, list_u8_len uintptr, ret unsafe.Pointer)
 
 // ssize_t pread(int fd, void *buf, size_t count, off_t offset);
 //
@@ -226,6 +226,10 @@ func close(fd int32) int32 {
 		return -1
 	}
 
+	if streams.d != -1 {
+		__wasi_filesystem_resource_drop_descriptor(streams.d)
+	}
+
 	if streams.in != -1 {
 		__wasi_io_streams_resource_drop_input_stream(streams.in)
 	}
@@ -234,14 +238,19 @@ func close(fd int32) int32 {
 		__wasi_io_streams_resource_drop_output_stream(streams.out)
 	}
 
+	delete(wasiStreams, fd)
+
 	return 0
 }
 
+//go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [resource-drop]descriptor
+func __wasi_filesystem_resource_drop_descriptor(d __wasi_filesystem_descriptor)
+
 //go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [resource-drop]input-stream
-func __wasi_io_streams_resource_drop_input_stream(stream inputStream)
+func __wasi_io_streams_resource_drop_input_stream(stream __wasi_io_streams_input_stream)
 
 //go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [resource-drop]output-stream
-func __wasi_io_streams_resource_drop_output_stream(stream outputStream)
+func __wasi_io_streams_resource_drop_output_stream(stream __wasi_io_streams_output_stream)
 
 // int dup(int fd)
 //
@@ -397,8 +406,6 @@ func populatePreopens() {
 //go:wasmimport wasi:filesystem/preopens@0.2.0-rc-2023-11-10 get-directories
 func __wasi_filesystem_preopens_get_directories() __wasi_list_tuple
 
-type __wasi_filesystem_descriptor int32
-
 type __wasi_filesystem_error int16
 
 type __wasi_tuple_descriptor_string struct {
@@ -491,7 +498,7 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 	}
 
 	streams := wasiFile{
-		d:   descriptor(ret.val),
+		d:   __wasi_filesystem_descriptor(ret.val),
 		in:  -1,
 		out: -1,
 	}
@@ -502,7 +509,7 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 			libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(ret.val)))
 			return -1
 		}
-		streams.in = inputStream(ret.val)
+		streams.in = __wasi_io_streams_input_stream(ret.val)
 	}
 	if dflags&__wasi_filesystem_descriptor_flag_write == __wasi_filesystem_descriptor_flag_write {
 		if flags&O_APPEND == O_APPEND {
@@ -513,7 +520,7 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 				libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(ret.val)))
 				return -1
 			}
-			streams.out = outputStream(ret.val)
+			streams.out = __wasi_io_streams_output_stream(ret.val)
 		} else {
 			// open for writing
 			__wasi_filesystem_types_method_descriptor_write_via_stream(streams.d, 0 /* offset */, &ret)
@@ -521,7 +528,7 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 				libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(ret.val)))
 				return -1
 			}
-			streams.out = outputStream(ret.val)
+			streams.out = __wasi_io_streams_output_stream(ret.val)
 		}
 
 	}
@@ -535,13 +542,13 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 }
 
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.read-via-stream
-func __wasi_filesystem_types_method_descriptor_read_via_stream(d descriptor, offset int64, ret *__wasi_result_descriptor_error)
+func __wasi_filesystem_types_method_descriptor_read_via_stream(d __wasi_filesystem_descriptor, offset int64, ret *__wasi_result_descriptor_error)
 
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.write-via-stream
-func __wasi_filesystem_types_method_descriptor_write_via_stream(d descriptor, offset int64, ret *__wasi_result_descriptor_error)
+func __wasi_filesystem_types_method_descriptor_write_via_stream(d __wasi_filesystem_descriptor, offset int64, ret *__wasi_result_descriptor_error)
 
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.append-via-stream
-func __wasi_filesystem_types_method_descriptor_append_via_stream(d descriptor, ret *__wasi_result_descriptor_error)
+func __wasi_filesystem_types_method_descriptor_append_via_stream(d __wasi_filesystem_descriptor, ret *__wasi_result_descriptor_error)
 
 const (
 	__wasi_filesystem_error_access                __wasi_filesystem_error = iota /// Permission denied, similar to `EACCES` in POSIX.
