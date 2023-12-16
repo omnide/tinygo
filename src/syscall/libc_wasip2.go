@@ -103,9 +103,35 @@ var nextLibcFd = int32(Stderr) + 1
 var wasiErrno error
 
 func init() {
-	// TODO(dgryski): pre-populate with stdin/stdout/stderr
-	wasiStreams = make(map[int32]*wasiFile)
+	wasiStreams = map[int32]*wasiFile{
+		Stdin: &wasiFile{
+			d:   -1,
+			in:  __wasi_cli_stdout_get_stdin(),
+			out: -1,
+		},
+
+		Stdout: &wasiFile{
+			d:   -1,
+			in:  -1,
+			out: __wasi_cli_stdout_get_stdout(),
+		},
+
+		Stderr: &wasiFile{
+			d:   -1,
+			in:  -1,
+			out: __wasi_cli_stdout_get_stderr(),
+		},
+	}
 }
+
+//go:wasmimport wasi:cli/stdin@0.2.0-rc-2023-11-10 get-stdin
+func __wasi_cli_stdout_get_stdin() __wasi_io_streams_input_stream
+
+//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-11-10 get-stdout
+func __wasi_cli_stdout_get_stdout() __wasi_io_streams_output_stream
+
+//go:wasmimport wasi:cli/stderr@0.2.0-rc-2023-11-10 get-stderr
+func __wasi_cli_stdout_get_stderr() __wasi_io_streams_output_stream
 
 // ssize_t read(int fd, void *buf, size_t count);
 //
