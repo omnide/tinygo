@@ -224,6 +224,9 @@ func __wasi_io_streams_method_input_stream_blocking_write_and_flush(self __wasi_
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.read
 func __wasi_filesystem_types_method_descriptor_read(self __wasi_filesystem_descriptor, len uint64, offset uint64, ret unsafe.Pointer)
 
+//go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.write
+func __wasi_filesystem_types_method_descriptor_write(self __wasi_filesystem_descriptor, list_u8_data unsafe.Pointer, list_u8_len int32, offset int64, ret unsafe.Pointer)
+
 type __wasi_tuple_list_u8_bool struct {
 	list_u8 __wasi_list_u8
 	b       bool
@@ -269,7 +272,38 @@ func pread(fd int32, buf *byte, count uint, offset int64) int {
 //
 //go:export pwrite
 func pwrite(fd int32, buf *byte, count uint, offset int64) int {
-	return 0
+	// TODO(dgryski): Need to be consistent about all these checks; EBADF/EINVAL/... ?
+	streams, ok := wasiStreams[fd]
+	if !ok {
+		// TODO(dgryski): EINVAL?
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+	if streams.d == -1 {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+	if streams.out == -1 {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+	list_u8 := __wasi_list_u8{
+		data: unsafe.Pointer(buf), len: uintptr(count),
+	}
+
+	var ret [unsafe.Sizeof(__wasi_result{}) + unsafe.Sizeof(uint64(0))]byte
+	__wasi_filesystem_types_method_descriptor_write(streams.d, list_u8.data, int32(list_u8.len), offset, unsafe.Pointer(&ret))
+	result := (*__wasi_result)(unsafe.Pointer(&ret))
+	if result.isErr {
+		// TODO(dgryski):
+		errCode := *(*__wasi_filesystem_error)(unsafe.Add(unsafe.Pointer(&ret), 8))
+		libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(errCode)))
+		return -1
+	}
+
+	size := *(*uint64)(unsafe.Add(unsafe.Pointer(&ret), 8))
+
+	return int(size)
 }
 
 // ssize_t lseek(int fd, off_t offset, int whence);
