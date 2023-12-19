@@ -25,55 +25,47 @@ func strlen(ptr unsafe.Pointer) uintptr {
 //
 //go:export write
 func write(fd int32, buf *byte, count uint) int {
-	streams, ok := wasiStreams[fd]
+	stream, ok := wasiStreams[fd]
 	if !ok {
+		// TODO(dgryski): EINVAL?
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	wasifd := streams.out
-	if wasifd == -1 {
+	if stream.d == -1 {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
 
-	ptr := unsafe.Pointer(buf)
+	n := pwrite(fd, buf, count, int64(stream.offset))
+	if n == -1 {
+		return -1
+	}
+	stream.offset += int64(n)
+	return int(n)
+}
 
-	var ret [12]byte
-
-	libcErrno = 0
-
-	// The blocking-write-and-flush call allows a maximum of 4096 bytes at a time.
-	// We loop here by instead of doing subscribe/check-write/poll-one/write by hand.
-	for count > 0 {
-		len := uint(4096)
-		if len > count {
-			len = count
-		}
-		list_u8 := __wasi_list_u8{
-			data: ptr, len: uintptr(len),
-		}
-
-		__wasi_io_streams_method_input_stream_blocking_write_and_flush(wasifd, list_u8.data, list_u8.len, unsafe.Pointer(&ret))
-		result := (*__wasi_result)(unsafe.Pointer(&ret))
-		if result.isErr {
-			stream_error_tag := (*__wasi_io_stream_error_tag)(unsafe.Add(unsafe.Pointer(&ret), 4))
-			switch stream_error_tag.tag {
-			case 0: // last operation failed
-				var0 := (*__wasi_io_stream_error_variant_last_operation_failed)(unsafe.Add(unsafe.Pointer(&ret), 8))
-				wasiErrno = __wasi_io_error_to_error(var0.err)
-				libcErrno = uintptr(EWASIERROR)
-				return -1
-
-			case 1: // closed == EOF was reached
-				libcErrno = 0
-			}
-		}
-		streams.outoffs += list_u8.len
-		ptr = unsafe.Add(ptr, list_u8.len)
-		count -= uint(list_u8.len)
+// ssize_t read(int fd, void *buf, size_t count);
+//
+//go:export read
+func read(fd int32, buf *byte, count uint) int {
+	stream, ok := wasiStreams[fd]
+	if !ok {
+		// TODO(dgryski): EINVAL?
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+	if stream.d == -1 {
+		libcErrno = uintptr(EBADF)
+		return -1
 	}
 
-	return 0
+	n := pread(fd, buf, count, int64(stream.offset))
+	if n == -1 {
+		// error during pread
+		return -1
+	}
+	stream.offset += int64(n)
+	return int(n)
 }
 
 // char *getenv(const char *name);
@@ -89,69 +81,41 @@ type __wasi_io_streams_input_stream int32
 
 type __wasi_io_streams_output_stream int32
 
+type __wasi_io_stream int32
+
+// At the moment, each time we have a file read or write we create a new stream.  Future implementations
+// could change the current in or out file stream lazily.  We could do this by tracking input and output
+// offsets individually, and if they don't match the current main offset, reopen the file stream at that location.
+
 type wasiFile struct {
-	d       __wasi_filesystem_descriptor
-	in      __wasi_io_streams_input_stream
-	inoffs  uintptr
-	out     __wasi_io_streams_output_stream
-	outoffs uintptr
+	d      __wasi_filesystem_descriptor
+	oflag  int32 // orignal open flags: O_RDONLY, O_WRONLY, O_RDWR
+	offset int64 // current fd offset; updated with each read/write
 }
 
-var wasiStreams map[int32]*wasiFile
+// Need to figure out which system calls we're using:
+//   stdin/stdout/stderr want streams, so we use stream read/write
+//   but for regular files we can use the descriptor and explicitly write a buffer to the offset?
+//   The mismatch comes from trying to combine these.
+
+var wasiStreams map[int32]*wasiFile = make(map[int32]*wasiFile)
 var nextLibcFd = int32(Stderr) + 1
 
 var wasiErrno error
 
-func init() {
-	wasiStreams = map[int32]*wasiFile{
-		Stdin: &wasiFile{
-			d:   -1,
-			in:  __wasi_cli_stdout_get_stdin(),
-			out: -1,
-		},
-
-		Stdout: &wasiFile{
-			d:   -1,
-			in:  -1,
-			out: __wasi_cli_stdout_get_stdout(),
-		},
-
-		Stderr: &wasiFile{
-			d:   -1,
-			in:  -1,
-			out: __wasi_cli_stdout_get_stderr(),
-		},
+func readStdin(fd int32, buf *byte, count uint, offset int64) int {
+	if fd != 0 {
+		// TODO(dgryski): Not sure this will place nicely wit `dup()` and processes which close stdin
+		panic("non-stdin passed to readStdin")
 	}
-}
-
-//go:wasmimport wasi:cli/stdin@0.2.0-rc-2023-11-10 get-stdin
-func __wasi_cli_stdout_get_stdin() __wasi_io_streams_input_stream
-
-//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-11-10 get-stdout
-func __wasi_cli_stdout_get_stdout() __wasi_io_streams_output_stream
-
-//go:wasmimport wasi:cli/stderr@0.2.0-rc-2023-11-10 get-stderr
-func __wasi_cli_stdout_get_stderr() __wasi_io_streams_output_stream
-
-// ssize_t read(int fd, void *buf, size_t count);
-//
-//go:export read
-func read(fd int32, buf *byte, count uint) int {
-	streams, ok := wasiStreams[fd]
-	if !ok {
-		libcErrno = uintptr(EBADF)
-		return -1
-	}
-	wasifd := streams.in
-	if wasifd == -1 {
-		libcErrno = uintptr(EBADF)
+	wasifd := __wasi_cli_stdout_get_stdin()
+	if offset != 0 {
+		libcErrno = uintptr(EINVAL)
 		return -1
 	}
 
 	var ret [12]byte
-
 	libcErrno = 0
-
 	__wasi_io_streams_method_input_stream_blocking_read(wasifd, int64(count), unsafe.Pointer(&ret))
 	result := (*__wasi_result)(unsafe.Pointer(&ret))
 	if result.isErr {
@@ -170,10 +134,70 @@ func read(fd int32, buf *byte, count uint) int {
 
 	list_u8 := (*__wasi_list_u8)(unsafe.Add(unsafe.Pointer(&ret), 4))
 
-	memcpy(unsafe.Pointer(buf), list_u8.data, list_u8.len)
-	streams.inoffs += list_u8.len
 	return int(list_u8.len)
 }
+
+func writeStdout(fd int32, buf *byte, count uint, offset int64) int {
+	var stream __wasi_io_streams_output_stream
+	switch fd {
+	case 1:
+		stream = __wasi_cli_stdout_get_stdout()
+	case 2:
+		stream = __wasi_cli_stdout_get_stderr()
+	default:
+		panic("non-stdout/err passed to writeStdout")
+	}
+
+	if offset != 0 {
+		libcErrno = uintptr(EINVAL)
+		return -1
+	}
+
+	ptr := unsafe.Pointer(buf)
+	var remaining = count
+
+	// The blocking-write-and-flush call allows a maximum of 4096 bytes at a time.
+	// We loop here by instead of doing subscribe/check-write/poll-one/write by hand.
+	for remaining > 0 {
+		len := uint(4096)
+		if len > remaining {
+			len = remaining
+		}
+		list_u8 := __wasi_list_u8{
+			data: ptr, len: uintptr(len),
+		}
+
+		var ret [12]byte
+		__wasi_io_streams_method_input_stream_blocking_write_and_flush(stream, list_u8.data, list_u8.len, unsafe.Pointer(&ret))
+		result := (*__wasi_result)(unsafe.Pointer(&ret))
+		if result.isErr {
+			stream_error_tag := (*__wasi_io_stream_error_tag)(unsafe.Add(unsafe.Pointer(&ret), 4))
+			switch stream_error_tag.tag {
+			case 0: // last operation failed
+				var0 := (*__wasi_io_stream_error_variant_last_operation_failed)(unsafe.Add(unsafe.Pointer(&ret), 8))
+				wasiErrno = __wasi_io_error_to_error(var0.err)
+				libcErrno = uintptr(EWASIERROR)
+				return -1
+
+			case 1: // closed == EOF was reached
+				libcErrno = 0
+			}
+		}
+		ptr = unsafe.Add(ptr, list_u8.len)
+		remaining -= uint(list_u8.len)
+	}
+
+	return int(count)
+}
+
+//go:wasmimport wasi:cli/stdin@0.2.0-rc-2023-11-10 get-stdin
+func __wasi_cli_stdout_get_stdin() __wasi_io_streams_input_stream
+
+//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-11-10 get-stdout
+func __wasi_cli_stdout_get_stdout() __wasi_io_streams_output_stream
+
+//go:wasmimport wasi:cli/stderr@0.2.0-rc-2023-11-10 get-stderr
+func __wasi_cli_stdout_get_stderr() __wasi_io_streams_output_stream
 
 //go:linkname memcpy runtime.memcpy
 func memcpy(dst, src unsafe.Pointer, size uintptr)
@@ -237,6 +261,17 @@ type __wasi_tuple_list_u8_bool struct {
 //go:export pread
 func pread(fd int32, buf *byte, count uint, offset int64) int {
 	// TODO(dgryski): Need to be consistent about all these checks; EBADF/EINVAL/... ?
+
+	if -1 < fd && fd <= Stderr {
+		if fd == Stdin {
+			return readStdin(fd, buf, count, offset)
+		}
+
+		// stdout/stderr not open for reading
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+
 	streams, ok := wasiStreams[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
@@ -247,7 +282,7 @@ func pread(fd int32, buf *byte, count uint, offset int64) int {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	if streams.in == -1 {
+	if streams.oflag&O_RDONLY == 0 {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
@@ -273,6 +308,10 @@ func pread(fd int32, buf *byte, count uint, offset int64) int {
 //go:export pwrite
 func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 	// TODO(dgryski): Need to be consistent about all these checks; EBADF/EINVAL/... ?
+	if -1 <= fd && fd <= Stderr {
+		return writeStdout(fd, buf, count, offset)
+	}
+
 	streams, ok := wasiStreams[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
@@ -283,10 +322,11 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	if streams.out == -1 {
+	if streams.oflag&O_WRONLY == 0 {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
+
 	list_u8 := __wasi_list_u8{
 		data: unsafe.Pointer(buf), len: uintptr(count),
 	}
@@ -302,7 +342,6 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 	}
 
 	size := *(*uint64)(unsafe.Add(unsafe.Pointer(&ret), 8))
-
 	return int(size)
 }
 
@@ -310,7 +349,22 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 //
 //go:export lseek
 func lseek(fd int32, offset int64, whence int) int64 {
-	return 0
+	streams, ok := wasiStreams[fd]
+	if !ok {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+
+	switch whence {
+	case 0: // SEEK_SET
+		streams.offset = offset
+	case 1: // SEEK_CUR
+		streams.offset += offset
+	case 2: // SEEK_END
+		// TODO(dgryski): query current file size, then add offset
+	}
+
+	return int64(streams.offset)
 }
 
 // int close(int fd)
@@ -325,14 +379,6 @@ func close(fd int32) int32 {
 
 	if streams.d != -1 {
 		__wasi_filesystem_resource_drop_descriptor(streams.d)
-	}
-
-	if streams.in != -1 {
-		__wasi_io_streams_resource_drop_input_stream(streams.in)
-	}
-
-	if streams.out != -1 {
-		__wasi_io_streams_resource_drop_output_stream(streams.out)
 	}
 
 	delete(wasiStreams, fd)
@@ -595,39 +641,12 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 	}
 
 	streams := wasiFile{
-		d:   __wasi_filesystem_descriptor(ret.val),
-		in:  -1,
-		out: -1,
+		d:     __wasi_filesystem_descriptor(ret.val),
+		oflag: flags,
 	}
 
-	if dflags&__wasi_filesystem_descriptor_flag_read == __wasi_filesystem_descriptor_flag_read {
-		__wasi_filesystem_types_method_descriptor_read_via_stream(streams.d, 0 /* offset */, &ret)
-		if ret.isErr {
-			libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(ret.val)))
-			return -1
-		}
-		streams.in = __wasi_io_streams_input_stream(ret.val)
-	}
-	if dflags&__wasi_filesystem_descriptor_flag_write == __wasi_filesystem_descriptor_flag_write {
-		if flags&O_APPEND == O_APPEND {
-			// open for append
-			// need to stat() here to get offset
-			__wasi_filesystem_types_method_descriptor_append_via_stream(streams.d, &ret)
-			if ret.isErr {
-				libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(ret.val)))
-				return -1
-			}
-			streams.out = __wasi_io_streams_output_stream(ret.val)
-		} else {
-			// open for writing
-			__wasi_filesystem_types_method_descriptor_write_via_stream(streams.d, 0 /* offset */, &ret)
-			if ret.isErr {
-				libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(ret.val)))
-				return -1
-			}
-			streams.out = __wasi_io_streams_output_stream(ret.val)
-		}
-
+	if flags&(O_WRONLY|O_APPEND) == (O_WRONLY | O_APPEND) {
+		// TODO(dgryski): opened for writing in append mode; set stream offset to size of file
 	}
 
 	libcfd := nextLibcFd
