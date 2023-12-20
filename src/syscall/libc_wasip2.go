@@ -168,7 +168,7 @@ func writeStdout(fd int32, buf *byte, count uint, offset int64) int {
 		}
 
 		var ret [12]byte
-		__wasi_io_streams_method_input_stream_blocking_write_and_flush(stream, list_u8.data, list_u8.len, unsafe.Pointer(&ret))
+		__wasi_io_streams_method_output_stream_blocking_write_and_flush(stream, list_u8.data, list_u8.len, unsafe.Pointer(&ret))
 		result := (*__wasi_result)(unsafe.Pointer(&ret))
 		if result.isErr {
 			stream_error_tag := (*__wasi_io_stream_error_tag)(unsafe.Add(unsafe.Pointer(&ret), 4))
@@ -243,7 +243,7 @@ type __wasi_io_stream_error_variant_closed struct {
 func __wasi_io_streams_method_input_stream_blocking_read(self __wasi_io_streams_input_stream, len int64, ret unsafe.Pointer)
 
 //go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]output-stream.blocking-write-and-flush
-func __wasi_io_streams_method_input_stream_blocking_write_and_flush(self __wasi_io_streams_output_stream, list_u8_data unsafe.Pointer, list_u8_len uintptr, ret unsafe.Pointer)
+func __wasi_io_streams_method_output_stream_blocking_write_and_flush(self __wasi_io_streams_output_stream, list_u8_data unsafe.Pointer, list_u8_len uintptr, ret unsafe.Pointer)
 
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.read
 func __wasi_filesystem_types_method_descriptor_read(self __wasi_filesystem_descriptor, len uint64, offset uint64, ret unsafe.Pointer)
@@ -503,6 +503,49 @@ func stat(pathname *byte, ptr unsafe.Pointer) int32 {
 
 }
 
+type __wasi_filesystem_descriptor_linkcount uint64
+type __wasi_filesystem_descriptor_filesize uint64
+
+type __wasi_clocks_wallclock_datetime struct {
+	seconds uint64
+	nano    uint32
+}
+
+type __wasi_option_datetime struct {
+	isSome bool
+	t      __wasi_clocks_wallclock_datetime
+}
+
+type __wasi_filesystem_descriptor_stat struct {
+	typ                         __wasi_filesystem_descriptor_type
+	link_count                  __wasi_filesystem_descriptor_linkcount
+	filesize                    __wasi_filesystem_descriptor_filesize
+	data_access_timestamp       __wasi_option_datetime
+	data_modification_timestamp __wasi_option_datetime
+	status_change_timestamp     __wasi_option_datetime
+}
+
+type __wasi_filesystem_descriptor_type uint8
+
+const (
+	__wasi_filesystem_descriptor_type_unknown          __wasi_filesystem_descriptor_type = iota /// The type of the descriptor or file is unknown or is different from any of the other types specified.
+	__wasi_filesystem_descriptor_type_block_device                                              /// The descriptor refers to a block device inode.
+	__wasi_filesystem_descriptor_type_character_device                                          /// The descriptor refers to a character device inode.
+	__wasi_filesystem_descriptor_type_directory                                                 /// The descriptor refers to a directory inode.
+	__wasi_filesystem_descriptor_type_fifo                                                      /// The descriptor refers to a named pipe.
+	__wasi_filesystem_descriptor_type_symbolic_link                                             /// The file refers to a symbolic link inode.
+	__wasi_filesystem_descriptor_type_regular_file                                              /// The descriptor refers to a regular file inode.
+	__wasi_filesystem_descriptor_type_socket                                                    /// The descriptor refers to a socket.
+)
+
+type __wasi_result_filesystem_descriptor_stat_error struct {
+	isErr bool
+	stat  __wasi_filesystem_descriptor_stat
+}
+
+//go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.stat
+func __wasi_filesystem_types_method_descriptor_stat(d __wasi_filesystem_descriptor, ret *__wasi_result_filesystem_descriptor_stat_error)
+
 // int fstat(int fd, struct stat * buf);
 //
 //go:export fstat
@@ -640,19 +683,30 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 		return -1
 	}
 
-	streams := wasiFile{
+	stream := wasiFile{
 		d:     __wasi_filesystem_descriptor(ret.val),
 		oflag: flags,
 	}
 
 	if flags&(O_WRONLY|O_APPEND) == (O_WRONLY | O_APPEND) {
-		// TODO(dgryski): opened for writing in append mode; set stream offset to size of file
+		var ret __wasi_result_filesystem_descriptor_stat_error
+
+		__wasi_filesystem_types_method_descriptor_stat(stream.d, &ret)
+
+		if ret.isErr {
+			error_code := *(*__wasi_filesystem_error)(unsafe.Add(unsafe.Pointer(&ret), 8))
+			libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(error_code)))
+			return -1
+
+		}
+
+		stream.offset = int64(ret.stat.filesize)
 	}
 
 	libcfd := nextLibcFd
 	nextLibcFd++
 
-	wasiStreams[libcfd] = &streams
+	wasiStreams[libcfd] = &stream
 
 	return int32(libcfd)
 }
