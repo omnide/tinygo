@@ -25,6 +25,10 @@ func strlen(ptr unsafe.Pointer) uintptr {
 //
 //go:export write
 func write(fd int32, buf *byte, count uint) int {
+	if -1 <= fd && fd <= Stderr {
+		return writeStdout(fd, buf, count, 0)
+	}
+
 	stream, ok := wasiStreams[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
@@ -48,6 +52,10 @@ func write(fd int32, buf *byte, count uint) int {
 //
 //go:export read
 func read(fd int32, buf *byte, count uint) int {
+	if -1 <= fd && fd <= Stderr {
+		return readStdin(fd, buf, count, 0)
+	}
+
 	stream, ok := wasiStreams[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
