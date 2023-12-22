@@ -369,7 +369,15 @@ func lseek(fd int32, offset int64, whence int) int64 {
 	case 1: // SEEK_CUR
 		streams.offset += offset
 	case 2: // SEEK_END
-		// TODO(dgryski): query current file size, then add offset
+		var ret __wasi_result_filesystem_descriptor_stat_error
+		__wasi_filesystem_types_method_descriptor_stat(stream.d, &ret)
+		if ret.isErr {
+			error_code := *(*__wasi_filesystem_error)(unsafe.Add(unsafe.Pointer(&ret), 8))
+			libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(error_code)))
+			return -1
+
+		}
+		stream.offset = int64(ret.stat.filesize) + offset
 	}
 
 	return int64(streams.offset)
