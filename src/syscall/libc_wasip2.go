@@ -507,8 +507,30 @@ func getpagesize() int {
 //
 //go:export stat
 func stat(pathname *byte, ptr unsafe.Pointer) int32 {
-	return 0
+	pathLen := strlen(unsafe.Pointer(pathname))
+	pathStr := _string{
+		pathname, uintptr(pathLen),
+	}
+	path := *(*string)(unsafe.Pointer(&pathStr))
+	dir, path := findPreopenForPath(path)
 
+	pathWasiStr := __wasi_string{
+		unsafe.Pointer(pathname), uint32(pathLen),
+	}
+
+	var ret __wasi_result_filesystem_descriptor_stat_error
+	__wasi_filesystem_types_method_descriptor_stat_at(dir, __wasi_filesystem_path_flag_symlink_follow, pathWasiStr, &ret)
+	if ret.isErr {
+		error_code := *(*__wasi_filesystem_error)(unsafe.Add(unsafe.Pointer(&ret), 8))
+		libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(error_code)))
+		return -1
+
+	}
+
+	stat := (*Stat_t)(ptr)
+	setStatFromWASIStat(stat, &ret.stat)
+
+	return 0
 }
 
 type __wasi_filesystem_descriptor_linkcount uint64
@@ -558,14 +580,99 @@ func __wasi_filesystem_types_method_descriptor_stat(d __wasi_filesystem_descript
 //
 //go:export fstat
 func fstat(fd int32, ptr unsafe.Pointer) int32 {
-	return 0
+	if -1 < fd && fd <= Stderr {
+		// TODO(dgryski): fill in stat buffer for stdin etc
+		return -1
+	}
 
+	stream, ok := wasiStreams[fd]
+	if !ok {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+	if stream.d == -1 {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+
+	var ret __wasi_result_filesystem_descriptor_stat_error
+	__wasi_filesystem_types_method_descriptor_stat(stream.d, &ret)
+	if ret.isErr {
+		error_code := *(*__wasi_filesystem_error)(unsafe.Add(unsafe.Pointer(&ret), 8))
+		libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(error_code)))
+		return -1
+	}
+
+	stat := (*Stat_t)(ptr)
+	setStatFromWASIStat(stat, &ret.stat)
+
+	return 0
 }
+
+func setStatFromWASIStat(sstat *Stat_t, wstat *__wasi_filesystem_descriptor_stat) {
+	// This will cause problems for people who want to compare inodes
+	sstat.Dev = 0
+	sstat.Ino = 0
+	sstat.Rdev = 0
+
+	sstat.Nlink = uint64(wstat.link_count)
+
+	// No mode bits
+	sstat.Mode = 0
+
+	// No uid/gid
+	sstat.Uid = 0
+	sstat.Gid = 0
+	sstat.Size = int64(wstat.filesize)
+
+	// made up numbers
+	sstat.Blksize = 512
+	sstat.Blocks = (sstat.Size + 511) / int64(sstat.Blksize)
+
+	setOptTime := func(t *Timespec, o *__wasi_option_datetime) {
+		t.Sec = 0
+		t.Nsec = 0
+		if o.isSome {
+			t.Sec = int32(o.t.seconds)
+			t.Nsec = int64(o.t.nano)
+		}
+	}
+
+	setOptTime(&sstat.Atim, &wstat.data_access_timestamp)
+	setOptTime(&sstat.Mtim, &wstat.data_modification_timestamp)
+	setOptTime(&sstat.Ctim, &wstat.status_change_timestamp)
+}
+
+//go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.stat-at
+func __wasi_filesystem_types_method_descriptor_stat_at(d __wasi_filesystem_descriptor, flags __wasi_filesystem_path_flags, path __wasi_string, ret *__wasi_result_filesystem_descriptor_stat_error)
 
 // int lstat(const char *path, struct stat * buf);
 //
 //go:export lstat
 func lstat(pathname *byte, ptr unsafe.Pointer) int32 {
+	pathLen := strlen(unsafe.Pointer(pathname))
+	pathStr := _string{
+		pathname, uintptr(pathLen),
+	}
+	path := *(*string)(unsafe.Pointer(&pathStr))
+	dir, path := findPreopenForPath(path)
+
+	pathWasiStr := __wasi_string{
+		unsafe.Pointer(pathname), uint32(pathLen),
+	}
+
+	var ret __wasi_result_filesystem_descriptor_stat_error
+	__wasi_filesystem_types_method_descriptor_stat_at(dir, 0, pathWasiStr, &ret)
+	if ret.isErr {
+		error_code := *(*__wasi_filesystem_error)(unsafe.Add(unsafe.Pointer(&ret), 8))
+		libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(error_code)))
+		return -1
+
+	}
+
+	stat := (*Stat_t)(ptr)
+	setStatFromWASIStat(stat, &ret.stat)
+
 	return 0
 }
 
@@ -633,6 +740,16 @@ const (
 	__wasi_filesystem_open_at_flags_truncate
 )
 
+func findPreopenForPath(path string) (__wasi_filesystem_descriptor, string) {
+	for k, v := range __wasi_filesystem_preopens {
+		if strings.HasPrefix(path, k) {
+			path = strings.TrimPrefix(path, k+"/")
+			return v, path
+		}
+	}
+	return __wasi_cwd_descriptor, path
+}
+
 // int open(const char *pathname, int flags, mode_t mode);
 //
 //go:export open
@@ -642,15 +759,8 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 		pathname, uintptr(pathLen),
 	}
 	path := *(*string)(unsafe.Pointer(&pathStr))
-	// TODO(dgryski): This path searching logic isn't right; need to strip out path prefix when we find it I think
-	var dir __wasi_filesystem_descriptor = __wasi_cwd_descriptor
-	for k, v := range __wasi_filesystem_preopens {
-		if strings.HasPrefix(path, k) {
-			dir = v
-			path = strings.TrimPrefix(path, k+"/")
-			break
-		}
-	}
+
+	dir, path := findPreopenForPath(path)
 
 	var dflags __wasi_filesystem_descriptor_flags
 	if (flags & O_RDONLY) == O_RDONLY {
