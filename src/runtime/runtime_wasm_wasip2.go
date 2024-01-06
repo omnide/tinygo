@@ -94,7 +94,7 @@ type __wasi_string struct {
 	len  uint32
 }
 
-//go:wasmimport wasi:cli/environment@0.2.0-rc-2023-11-10 get-arguments
+//go:wasmimport wasi:cli/environment@0.2.0-rc-2023-12-05 get-arguments
 func __wasi_cli_environment_get_arguments() __wasi_list_string
 
 type __wasi_clocks_wallclock_datetime struct {

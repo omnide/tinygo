@@ -11,13 +11,13 @@ type __wasi_io_stream_list struct {
 	len uint32
 }
 
-//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-11-10 get-stdout
+//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-12-05 get-stdout
 func __wasi_cli_stdout_get_stdout() int32
 
 //go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]output-stream.blocking-write-and-flush
 func __wasi_io_streams_blocking_write_and_flush(stream int32, buf __wasi_io_stream_list, err unsafe.Pointer)
 
-//go:wasmimport wasi:cli/exit@0.2.0-rc-2023-11-10 exit
+//go:wasmimport wasi:cli/exit@0.2.0-rc-2023-12-05 exit
 func __wasi_exit_exit(status uint32)
 
 const (

@@ -198,13 +198,13 @@ func writeStdout(fd int32, buf *byte, count uint, offset int64) int {
 	return int(count)
 }
 
-//go:wasmimport wasi:cli/stdin@0.2.0-rc-2023-11-10 get-stdin
+//go:wasmimport wasi:cli/stdin@0.2.0-rc-2023-12-05 get-stdin
 func __wasi_cli_stdout_get_stdin() __wasi_io_streams_input_stream
 
-//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-11-10 get-stdout
+//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-12-05 get-stdout
 func __wasi_cli_stdout_get_stdout() __wasi_io_streams_output_stream
 
-//go:wasmimport wasi:cli/stderr@0.2.0-rc-2023-11-10 get-stderr
+//go:wasmimport wasi:cli/stderr@0.2.0-rc-2023-12-05 get-stderr
 func __wasi_cli_stdout_get_stderr() __wasi_io_streams_output_stream
 
 //go:linkname memcpy runtime.memcpy

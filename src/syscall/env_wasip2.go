@@ -26,7 +26,7 @@ type _string struct {
 	length uintptr
 }
 
-//go:wasmimport wasi:cli/environment@0.2.0-rc-2023-11-10 get-environment
+//go:wasmimport wasi:cli/environment@0.2.0-rc-2023-12-05 get-environment
 func __wasi_cli_environment_get_environment() __wasi_list_tuple
 
 func Environ() []string {
