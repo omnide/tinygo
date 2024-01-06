@@ -13,6 +13,12 @@ type timeUnit int64
 //export __wasm_call_ctors
 func __wasm_call_ctors()
 
+//export wasi:cli/run@0.2.0-rc-2023-12-05#run
+func __wasi_cli_run_run() uint32 {
+	_start()
+	return 0
+}
+
 //export _start
 func _start() {
 	// These need to be initialized early so that the heap can be initialized.
