@@ -357,7 +357,7 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 //
 //go:export lseek
 func lseek(fd int32, offset int64, whence int) int64 {
-	streams, ok := wasiStreams[fd]
+	stream, ok := wasiStreams[fd]
 	if !ok {
 		libcErrno = uintptr(EBADF)
 		return -1
@@ -365,9 +365,9 @@ func lseek(fd int32, offset int64, whence int) int64 {
 
 	switch whence {
 	case 0: // SEEK_SET
-		streams.offset = offset
+		stream.offset = offset
 	case 1: // SEEK_CUR
-		streams.offset += offset
+		stream.offset += offset
 	case 2: // SEEK_END
 		var ret __wasi_result_filesystem_descriptor_stat_error
 		__wasi_filesystem_types_method_descriptor_stat(stream.d, &ret)
@@ -380,7 +380,7 @@ func lseek(fd int32, offset int64, whence int) int64 {
 		stream.offset = int64(ret.stat.filesize) + offset
 	}
 
-	return int64(streams.offset)
+	return int64(stream.offset)
 }
 
 // int close(int fd)
