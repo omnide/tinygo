@@ -141,7 +141,7 @@ func readStdin(fd int32, buf *byte, count uint, offset int64) int {
 	}
 
 	list_u8 := (*__wasi_list_u8)(unsafe.Add(unsafe.Pointer(&ret), 4))
-
+	memcpy(unsafe.Pointer(buf), list_u8.data, list_u8.len)
 	return int(list_u8.len)
 }
 
