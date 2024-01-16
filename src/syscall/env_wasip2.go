@@ -3,6 +3,7 @@
 package syscall
 
 import (
+	"internal/wasm/cm"
 	"unsafe"
 )
 
@@ -11,41 +12,26 @@ type __wasi_list_tuple struct {
 	len uint32
 }
 
-type __wasi_tuple_string_string struct {
-	first  __wasi_string
-	second __wasi_string
-}
-
+// TODO(ydnar): replace __wasi_string with Go string
 type __wasi_string struct {
 	data unsafe.Pointer
 	len  uint32
 }
 
+// TODO(ydnar): replace _string with Go string
 type _string struct {
 	ptr    *byte
 	length uintptr
 }
 
 //go:wasmimport wasi:cli/environment@0.2.0-rc-2023-12-05 get-environment
-func __wasi_cli_environment_get_environment() __wasi_list_tuple
+func __wasi_cli_environment_get_environment() cm.List[cm.Tuple[string, string]]
 
 func Environ() []string {
-	var envs []string
-	list_tuple := __wasi_cli_environment_get_environment()
-	envs = make([]string, list_tuple.len)
-	ptr := list_tuple.ptr
-	for i := uint32(0); i < list_tuple.len; i++ {
-		tuple := *(*__wasi_tuple_string_string)(ptr)
-		first, second := tuple.first, tuple.second
-		envKey := _string{
-			(*byte)(first.data), uintptr(first.len),
-		}
-		envValue := _string{
-			(*byte)(second.data), uintptr(second.len),
-		}
-		envs[i] = *(*string)(unsafe.Pointer(&envKey)) + "=" + *(*string)(unsafe.Pointer(&envValue))
-		ptr = unsafe.Add(ptr, unsafe.Sizeof(__wasi_tuple_string_string{}))
+	var env []string
+	wasiEnv := __wasi_cli_environment_get_environment().Slice()
+	for _, kv := range wasiEnv {
+		env = append(env, kv.V0+"="+kv.V1)
 	}
-
-	return envs
+	return env
 }
