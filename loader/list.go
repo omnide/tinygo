@@ -19,7 +19,7 @@ func List(config *compileopts.Config, extraArgs, pkgs []string) (*exec.Cmd, erro
 	}
 	args := append([]string{"list"}, extraArgs...)
 	if len(config.BuildTags()) != 0 {
-		args = append(args, "-tags", strings.Join(config.BuildTags(), " "))
+		args = append(args, "-tags", strings.Join(config.BuildTags(), ","))
 	}
 	args = append(args, pkgs...)
 	cgoEnabled := "0"
