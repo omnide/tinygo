@@ -5,6 +5,7 @@
 package syscall
 
 import (
+	"internal/wasm/cm"
 	"strings"
 	"unsafe"
 )
@@ -693,34 +694,22 @@ var __wasi_cwd_descriptor __wasi_filesystem_descriptor
 var __wasi_filesystem_preopens map[string]__wasi_filesystem_descriptor
 
 func populatePreopens() {
-	list_tuple := __wasi_filesystem_preopens_get_directories()
-	dirs := make(map[string]__wasi_filesystem_descriptor, list_tuple.len)
-	ptr := list_tuple.ptr
-	for i := uint32(0); i < list_tuple.len; i++ {
-		tuple := *(*__wasi_tuple_descriptor_string)(ptr)
-		descriptor, pathWasiStr := tuple.first, tuple.second
-		pathStr := _string{
-			(*byte)(pathWasiStr.data), uintptr(pathWasiStr.len),
-		}
-		path := *(*string)(unsafe.Pointer(&pathStr))
-		dirs[path] = descriptor
+	dirs := __wasi_filesystem_preopens_get_directories().Slice()
+	preopens := make(map[string]__wasi_filesystem_descriptor, len(dirs))
+	for _, tup := range dirs {
+		desc, path := tup.V0, tup.V1
+		preopens[path] = desc
 		if path == "." {
-			__wasi_cwd_descriptor = descriptor
+			__wasi_cwd_descriptor = desc
 		}
-		ptr = unsafe.Add(ptr, unsafe.Sizeof(__wasi_tuple_descriptor_string{}))
 	}
-	__wasi_filesystem_preopens = dirs
+	__wasi_filesystem_preopens = preopens
 }
 
 //go:wasmimport wasi:filesystem/preopens@0.2.0-rc-2023-11-10 get-directories
-func __wasi_filesystem_preopens_get_directories() __wasi_list_tuple
+func __wasi_filesystem_preopens_get_directories() cm.List[cm.Tuple[__wasi_filesystem_descriptor, string]]
 
 type __wasi_filesystem_error int16
-
-type __wasi_tuple_descriptor_string struct {
-	first  __wasi_filesystem_descriptor
-	second __wasi_string
-}
 
 type __wasi_filesystem_path_flags uint32
 
