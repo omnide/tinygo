@@ -240,6 +240,7 @@ func pathsToOverride(goMinor int, needsSyscallPackage bool) map[string]bool {
 		"internal/fuzz/":        false,
 		"internal/reflectlite/": false,
 		"internal/task/":        false,
+		"internal/wasm/":        false,
 		"machine/":              false,
 		"net/":                  true,
 		"net/http/":             false,
