@@ -4,6 +4,8 @@ package runtime
 
 import (
 	"unsafe"
+
+	"internal/wasm/cm"
 )
 
 type timeUnit int64
@@ -40,17 +42,7 @@ var args []string
 //go:linkname os_runtime_args os.runtime_args
 func os_runtime_args() []string {
 	if args == nil {
-		list_string := __wasi_cli_environment_get_arguments()
-		args = make([]string, list_string.len)
-		ptr := list_string.ptr
-		for i := uint32(0); i < list_string.len; i++ {
-			sbuf := *(*__wasi_string)(ptr)
-			argString := _string{
-				(*byte)(sbuf.data), uintptr(sbuf.len),
-			}
-			args[i] = *(*string)(unsafe.Pointer(&argString))
-			ptr = unsafe.Add(ptr, unsafe.Sizeof(__wasi_string{}))
-		}
+		args = __wasi_cli_environment_get_arguments().Slice()
 	}
 	return args
 }
@@ -90,18 +82,8 @@ func ticks() timeUnit {
 	return timeUnit(nano)
 }
 
-type __wasi_list_string struct {
-	ptr unsafe.Pointer
-	len uint32
-}
-
-type __wasi_string struct {
-	data unsafe.Pointer
-	len  uint32
-}
-
 //go:wasmimport wasi:cli/environment@0.2.0-rc-2023-12-05 get-arguments
-func __wasi_cli_environment_get_arguments() __wasi_list_string
+func __wasi_cli_environment_get_arguments() cm.List[string]
 
 type __wasi_clocks_wallclock_datetime struct {
 	seconds     uint64
