@@ -364,31 +364,37 @@ func (c *compilerContext) checkWasmImport(f *ssa.Function, pragma string) {
 			c.addError(result.Pos(), fmt.Sprintf("%s: unsupported result type %s", pragma, result.Type().String()))
 		}
 	}
-	// TODO(ydnar): document why we relaxed this for WASI Preview 2
-	// for _, param := range f.Params {
-	// 	// Check whether the type is allowed.
-	// 	// Only a very limited number of types can be mapped to WebAssembly.
-	// 	if !isValidWasmType(param.Type(), false) {
-	// 		c.addError(param.Pos(), fmt.Sprintf("%s: unsupported parameter type %s", pragma, param.Type().String()))
-	// 	}
-	// }
+	for _, param := range f.Params {
+		// Check whether the type is allowed.
+		// Only a very limited number of types can be mapped to WebAssembly.
+		if !isValidWasmType(param.Type(), false) {
+			c.addError(param.Pos(), fmt.Sprintf("%s: unsupported parameter type %s", pragma, param.Type().String()))
+		}
+	}
 }
 
 // Check whether the type maps directly to a WebAssembly type, according to:
 // https://github.com/golang/go/issues/59149
+// TODO(ydnar): document why we relaxed this for WASI Preview 2.
 func isValidWasmType(typ types.Type, isReturn bool) bool {
 	switch typ := typ.Underlying().(type) {
 	case *types.Basic:
 		switch typ.Kind() {
-		case types.Int32, types.Uint32, types.Int64, types.Uint64:
+		case types.Bool:
+			return true
+		case types.Int8, types.Uint8, types.Int16, types.Uint16, types.Int32, types.Uint32, types.Int64, types.Uint64:
 			return true
 		case types.Float32, types.Float64:
 			return true
-		case types.UnsafePointer:
-			if !isReturn {
-				return true
-			}
+		case types.Uintptr, types.UnsafePointer:
+			return true
+		case types.String:
+			return true
 		}
+	case *types.Struct, *types.Array:
+		return !isReturn
+	case *types.Pointer:
+		return isValidWasmType(typ.Elem(), isReturn)
 	}
 	return false
 }
