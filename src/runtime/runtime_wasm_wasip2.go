@@ -5,9 +5,9 @@ package runtime
 import (
 	"unsafe"
 
-	"internal/wasm/cm"
-	"internal/wasm/wasi/clocks/monotonicclock"
-	"internal/wasm/wasi/clocks/wallclock"
+	"github.com/ydnar/wasm-tools-go/cm"
+	"github.com/ydnar/wasm-tools-go/wasi/clocks/monotonicclock"
+	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
 )
 
 type timeUnit int64

@@ -3,8 +3,9 @@
 package syscall
 
 import (
-	"internal/wasm/cm"
 	"unsafe"
+
+	"github.com/ydnar/wasm-tools-go/cm"
 )
 
 type __wasi_list_tuple struct {

@@ -5,10 +5,11 @@
 package syscall
 
 import (
-	"internal/wasm/cm"
-	"internal/wasm/wasi/clocks/wallclock"
 	"strings"
 	"unsafe"
+
+	"github.com/ydnar/wasm-tools-go/cm"
+	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
 )
 
 //go:export strlen

@@ -3,9 +3,10 @@
 package runtime
 
 import (
-	"internal/wasm/wasi/clocks/monotonicclock"
-	"internal/wasm/wasi/clocks/wallclock"
 	"unsafe"
+
+	"github.com/ydnar/wasm-tools-go/wasi/clocks/monotonicclock"
+	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
 )
 
 type __wasi_io_stream_list struct {
