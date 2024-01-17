@@ -364,13 +364,14 @@ func (c *compilerContext) checkWasmImport(f *ssa.Function, pragma string) {
 			c.addError(result.Pos(), fmt.Sprintf("%s: unsupported result type %s", pragma, result.Type().String()))
 		}
 	}
-	for _, param := range f.Params {
-		// Check whether the type is allowed.
-		// Only a very limited number of types can be mapped to WebAssembly.
-		if !isValidWasmType(param.Type(), false) {
-			c.addError(param.Pos(), fmt.Sprintf("%s: unsupported parameter type %s", pragma, param.Type().String()))
-		}
-	}
+	// TODO(ydnar): document why we relaxed this for WASI Preview 2
+	// for _, param := range f.Params {
+	// 	// Check whether the type is allowed.
+	// 	// Only a very limited number of types can be mapped to WebAssembly.
+	// 	if !isValidWasmType(param.Type(), false) {
+	// 		c.addError(param.Pos(), fmt.Sprintf("%s: unsupported parameter type %s", pragma, param.Type().String()))
+	// 	}
+	// }
 }
 
 // Check whether the type maps directly to a WebAssembly type, according to:

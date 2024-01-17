@@ -6,6 +6,7 @@ package syscall
 
 import (
 	"internal/wasm/cm"
+	"internal/wasm/wasi/clocks/wallclock"
 	"strings"
 	"unsafe"
 )
@@ -545,14 +546,9 @@ func stat(pathname *byte, ptr unsafe.Pointer) int32 {
 type __wasi_filesystem_descriptor_linkcount uint64
 type __wasi_filesystem_descriptor_filesize uint64
 
-type __wasi_clocks_wallclock_datetime struct {
-	seconds uint64
-	nano    uint32
-}
-
 type __wasi_option_datetime struct {
 	isSome bool
-	t      __wasi_clocks_wallclock_datetime
+	t      wallclock.DateTime
 }
 
 type __wasi_filesystem_descriptor_stat struct {
@@ -642,8 +638,8 @@ func setStatFromWASIStat(sstat *Stat_t, wstat *__wasi_filesystem_descriptor_stat
 		t.Sec = 0
 		t.Nsec = 0
 		if o.isSome {
-			t.Sec = int32(o.t.seconds)
-			t.Nsec = int64(o.t.nano)
+			t.Sec = int32(o.t.Seconds)
+			t.Nsec = int64(o.t.Nanoseconds)
 		}
 	}
 

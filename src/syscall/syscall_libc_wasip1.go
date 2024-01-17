@@ -223,6 +223,8 @@ const (
 	EWASIERROR Errno = 255 /* Unknown WASI error */
 )
 
+// TODO(ydnar): remove Timespec for WASI Preview 2 (seconds is uint64).
+//
 // https://github.com/WebAssembly/wasi-libc/blob/main/libc-bottom-half/headers/public/__struct_timespec.h
 type Timespec struct {
 	Sec  int32

@@ -3,6 +3,8 @@
 package runtime
 
 import (
+	"internal/wasm/wasi/clocks/monotonicclock"
+	"internal/wasm/wasi/clocks/wallclock"
 	"unsafe"
 )
 
@@ -60,9 +62,10 @@ func buffered() int {
 
 //go:linkname now time.now
 func now() (sec int64, nsec int32, mono int64) {
-	mono = nanotime()
-	sec = mono / (1000 * 1000 * 1000)
-	nsec = int32(mono - sec*(1000*1000*1000))
+	now := wallclock.Now()
+	sec = int64(now.Seconds)
+	nsec = int32(now.Nanoseconds)
+	mono = int64(monotonicclock.Now())
 	return
 }
 

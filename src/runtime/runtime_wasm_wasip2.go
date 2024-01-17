@@ -6,6 +6,8 @@ import (
 	"unsafe"
 
 	"internal/wasm/cm"
+	"internal/wasm/wasi/clocks/monotonicclock"
+	"internal/wasm/wasi/clocks/wallclock"
 )
 
 type timeUnit int64
@@ -60,35 +62,16 @@ func nanosecondsToTicks(ns int64) timeUnit {
 	return timeUnit(ns)
 }
 
-const timePrecisionNanoseconds = 1000 // TODO: how can we determine the appropriate `precision`?
-
-var ()
-
-//go:wasmimport wasi:clocks/monotonic-clock@0.2.0-rc-2023-11-10 subscribe-duration
-func __wasi_clocks_monotonic_subscribe_duration(d uint64) uint32
-
-//go:wasmimport wasi:io/poll@0.2.0-rc-2023-11-10 [method]pollable.block
-func __wasi_io_poll_pollable_block(pollable uint32)
-
 func sleepTicks(d timeUnit) {
-	p := __wasi_clocks_monotonic_subscribe_duration(uint64(d))
-	__wasi_io_poll_pollable_block(p)
+	p := monotonicclock.SubscribeDuration(monotonicclock.Duration(d))
+	p.Block()
 }
 
 func ticks() timeUnit {
-	var now __wasi_clocks_wallclock_datetime
-	__wasi_clocks_wallclock_now(&now)
-	nano := now.seconds*1e9 + uint64(now.nanoseconds)
+	now := wallclock.Now()
+	nano := now.Seconds*1e9 + uint64(now.Nanoseconds)
 	return timeUnit(nano)
 }
 
 //go:wasmimport wasi:cli/environment@0.2.0-rc-2023-12-05 get-arguments
 func __wasi_cli_environment_get_arguments() cm.List[string]
-
-type __wasi_clocks_wallclock_datetime struct {
-	seconds     uint64
-	nanoseconds uint32
-}
-
-//go:wasmimport wasi:clocks/wall-clock@0.2.0-rc-2023-11-10 now
-func __wasi_clocks_wallclock_now(t *__wasi_clocks_wallclock_datetime)
