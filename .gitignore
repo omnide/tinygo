@@ -1,3 +1,6 @@
+go.work
+go.work.sum
+
 docs/_build
 src/device/avr/*.go
 src/device/avr/*.ld
