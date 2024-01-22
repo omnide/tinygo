@@ -3,50 +3,32 @@
 package runtime
 
 import (
-	"unsafe"
-
+	"github.com/ydnar/wasm-tools-go/cm"
+	"github.com/ydnar/wasm-tools-go/wasi/cli/exit"
+	"github.com/ydnar/wasm-tools-go/wasi/cli/stdout"
 	"github.com/ydnar/wasm-tools-go/wasi/clocks/monotonicclock"
 	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
 )
 
-type __wasi_io_stream_list struct {
-	buf unsafe.Pointer
-	len uint32
-}
-
-//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-12-05 get-stdout
-func __wasi_cli_stdout_get_stdout() int32
-
-//go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]output-stream.blocking-write-and-flush
-func __wasi_io_streams_blocking_write_and_flush(stream int32, buf __wasi_io_stream_list, err unsafe.Pointer)
-
-//go:wasmimport wasi:cli/exit@0.2.0-rc-2023-12-05 exit
-func __wasi_exit_exit(status uint32)
-
-const (
-	putcharBufferSize = 120
-)
+const putcharBufferSize = 120
 
 // Using global variables to avoid heap allocation.
 var (
-	stdout                 = __wasi_cli_stdout_get_stdout()
-	putcharBuffer          = [putcharBufferSize]byte{}
-	putcharPosition uint32 = 0
-	putcharList            = __wasi_io_stream_list{
-		buf: unsafe.Pointer(&putcharBuffer[0]),
-	}
+	putcharStdout        = stdout.GetStdout()
+	putcharBuffer        = [putcharBufferSize]byte{}
+	putcharPosition uint = 0
 )
 
 func putchar(c byte) {
 	putcharBuffer[putcharPosition] = c
 	putcharPosition++
-
-	var err uint64
-
 	if c == '\n' || putcharPosition >= putcharBufferSize {
-		putcharList.len = putcharPosition
-		// TODO(dgryski): need actual ptr for error return
-		__wasi_io_streams_blocking_write_and_flush(stdout, putcharList, unsafe.Pointer(&err))
+		list := cm.NewList(&putcharBuffer[0], putcharPosition)
+		result := putcharStdout.BlockingWriteAndFlush(list)
+		if err, isErr := result.Err(); isErr {
+			// TODO(ydnar): handle error case
+			panic(err)
+		}
 		putcharPosition = 0
 	}
 }
@@ -77,7 +59,7 @@ func abort() {
 
 //go:linkname syscall_Exit syscall.Exit
 func syscall_Exit(code int) {
-	__wasi_exit_exit(uint32(code))
+	exit.Exit(code != 0)
 }
 
 // TinyGo does not yet support any form of parallelism on WebAssembly, so these

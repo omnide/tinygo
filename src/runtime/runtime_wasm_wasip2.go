@@ -5,7 +5,7 @@ package runtime
 import (
 	"unsafe"
 
-	"github.com/ydnar/wasm-tools-go/cm"
+	"github.com/ydnar/wasm-tools-go/wasi/cli/environment"
 	"github.com/ydnar/wasm-tools-go/wasi/clocks/monotonicclock"
 	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
 )
@@ -44,7 +44,7 @@ var args []string
 //go:linkname os_runtime_args os.runtime_args
 func os_runtime_args() []string {
 	if args == nil {
-		args = __wasi_cli_environment_get_arguments().Slice()
+		args = environment.GetArguments().Slice()
 	}
 	return args
 }
@@ -72,6 +72,3 @@ func ticks() timeUnit {
 	nano := now.Seconds*1e9 + uint64(now.Nanoseconds)
 	return timeUnit(nano)
 }
-
-//go:wasmimport wasi:cli/environment@0.2.0-rc-2023-12-05 get-arguments
-func __wasi_cli_environment_get_arguments() cm.List[string]

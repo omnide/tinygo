@@ -9,14 +9,23 @@ import (
 	"unsafe"
 
 	"github.com/ydnar/wasm-tools-go/cm"
+	"github.com/ydnar/wasm-tools-go/wasi/cli/stderr"
+	"github.com/ydnar/wasm-tools-go/wasi/cli/stdin"
+	"github.com/ydnar/wasm-tools-go/wasi/cli/stdout"
 	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
+	"github.com/ydnar/wasm-tools-go/wasi/io/streams"
 )
 
+func goString(cstr *byte) string {
+	return unsafe.String(cstr, strlen(cstr))
+}
+
 //go:export strlen
-func strlen(ptr unsafe.Pointer) uintptr {
-	if ptr == nil {
+func strlen(cstr *byte) uintptr {
+	if cstr == nil {
 		return 0
 	}
+	ptr := unsafe.Pointer(cstr)
 	var i uintptr
 	for p := (*byte)(ptr); *p != 0; p = (*byte)(unsafe.Add(unsafe.Pointer(p), 1)) {
 		i++
@@ -119,42 +128,38 @@ func readStdin(fd int32, buf *byte, count uint, offset int64) int {
 		// TODO(dgryski): Not sure this will place nicely wit `dup()` and processes which close stdin
 		panic("non-stdin passed to readStdin")
 	}
-	wasifd := __wasi_cli_stdout_get_stdin()
+	wasiStdin := stdin.GetStdin()
 	if offset != 0 {
 		libcErrno = uintptr(EINVAL)
 		return -1
 	}
 
-	var ret [12]byte
 	libcErrno = 0
-	__wasi_io_streams_method_input_stream_blocking_read(wasifd, int64(count), unsafe.Pointer(&ret))
-	result := (*__wasi_result)(unsafe.Pointer(&ret))
-	if result.isErr {
-		stream_error_tag := (*__wasi_io_stream_error_tag)(unsafe.Add(unsafe.Pointer(&ret), 4))
-		switch stream_error_tag.tag {
-		case 0: // last operation failed
-			var0 := (*__wasi_io_stream_error_variant_last_operation_failed)(unsafe.Add(unsafe.Pointer(&ret), 8))
-			wasiErrno = __wasi_io_error_to_error(var0.err)
-			libcErrno = uintptr(EWASIERROR)
-			return -1
-
-		case 1: // closed == EOF was reached
+	result := wasiStdin.BlockingRead(uint64(count))
+	if err, isErr := result.Err(); isErr {
+		if err.Closed() {
 			libcErrno = 0
+			return 0
+		} else if err, ok := err.LastOperationFailed(); ok {
+			wasiErrno = err
+			libcErrno = uintptr(EWASIERROR)
 		}
+		return -1
 	}
 
-	list_u8 := (*__wasi_list_u8)(unsafe.Add(unsafe.Pointer(&ret), 4))
-	memcpy(unsafe.Pointer(buf), list_u8.data, list_u8.len)
-	return int(list_u8.len)
+	list, _ := result.OK()
+	dst := unsafe.Slice(buf, count)
+	copy(dst, list.Slice())
+	return int(list.Len())
 }
 
 func writeStdout(fd int32, buf *byte, count uint, offset int64) int {
-	var stream __wasi_io_streams_output_stream
+	var stream streams.OutputStream
 	switch fd {
 	case 1:
-		stream = __wasi_cli_stdout_get_stdout()
+		stream = stdout.GetStdout()
 	case 2:
-		stream = __wasi_cli_stdout_get_stderr()
+		stream = stderr.GetStderr()
 	default:
 		panic("non-stdout/err passed to writeStdout")
 	}
@@ -164,7 +169,7 @@ func writeStdout(fd int32, buf *byte, count uint, offset int64) int {
 		return -1
 	}
 
-	ptr := unsafe.Pointer(buf)
+	src := unsafe.Slice(buf, count)
 	var remaining = count
 
 	// The blocking-write-and-flush call allows a maximum of 4096 bytes at a time.
@@ -174,61 +179,25 @@ func writeStdout(fd int32, buf *byte, count uint, offset int64) int {
 		if len > remaining {
 			len = remaining
 		}
-		list_u8 := __wasi_list_u8{
-			data: ptr, len: uintptr(len),
-		}
-
-		var ret [12]byte
-		__wasi_io_streams_method_output_stream_blocking_write_and_flush(stream, list_u8.data, list_u8.len, unsafe.Pointer(&ret))
-		result := (*__wasi_result)(unsafe.Pointer(&ret))
-		if result.isErr {
-			stream_error_tag := (*__wasi_io_stream_error_tag)(unsafe.Add(unsafe.Pointer(&ret), 4))
-			switch stream_error_tag.tag {
-			case 0: // last operation failed
-				var0 := (*__wasi_io_stream_error_variant_last_operation_failed)(unsafe.Add(unsafe.Pointer(&ret), 8))
-				wasiErrno = __wasi_io_error_to_error(var0.err)
-				libcErrno = uintptr(EWASIERROR)
-				return -1
-
-			case 1: // closed == EOF was reached
+		result := stream.BlockingWriteAndFlush(cm.ToList(src[:len]))
+		if err, isErr := result.Err(); isErr {
+			if err.Closed() {
 				libcErrno = 0
+				return 0
+			} else if err, ok := err.LastOperationFailed(); ok {
+				wasiErrno = err
+				libcErrno = uintptr(EWASIERROR)
 			}
+			return -1
 		}
-		ptr = unsafe.Add(ptr, list_u8.len)
-		remaining -= uint(list_u8.len)
+		remaining -= len
 	}
 
 	return int(count)
 }
 
-//go:wasmimport wasi:cli/stdin@0.2.0-rc-2023-12-05 get-stdin
-func __wasi_cli_stdout_get_stdin() __wasi_io_streams_input_stream
-
-//go:wasmimport wasi:cli/stdout@0.2.0-rc-2023-12-05 get-stdout
-func __wasi_cli_stdout_get_stdout() __wasi_io_streams_output_stream
-
-//go:wasmimport wasi:cli/stderr@0.2.0-rc-2023-12-05 get-stderr
-func __wasi_cli_stdout_get_stderr() __wasi_io_streams_output_stream
-
 //go:linkname memcpy runtime.memcpy
 func memcpy(dst, src unsafe.Pointer, size uintptr)
-
-type WASIError string
-
-func (e WASIError) Error() string {
-	return string(e)
-}
-
-func __wasi_io_error_to_error(err int32) error {
-	var debug __wasi_string
-	__wasi_io_error_error_to_debug_string(err, &debug)
-
-	s := *(*string)(unsafe.Pointer(&debug))
-	return WASIError(s)
-}
-
-//go:wasmimport wasi:io/error@0.2.0-rc-2023-11-10 [method]error.to-debug-string
-func __wasi_io_error_error_to_debug_string(err int32, s *__wasi_string)
 
 type __wasi_result struct {
 	isErr bool
@@ -238,23 +207,6 @@ type __wasi_list_u8 struct {
 	data unsafe.Pointer
 	len  uintptr
 }
-
-type __wasi_io_stream_error_tag struct {
-	tag uint8
-}
-
-type __wasi_io_stream_error_variant_last_operation_failed struct {
-	err int32
-}
-
-type __wasi_io_stream_error_variant_closed struct {
-}
-
-//go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]input-stream.blocking-read
-func __wasi_io_streams_method_input_stream_blocking_read(self __wasi_io_streams_input_stream, len int64, ret unsafe.Pointer)
-
-//go:wasmimport wasi:io/streams@0.2.0-rc-2023-11-10 [method]output-stream.blocking-write-and-flush
-func __wasi_io_streams_method_output_stream_blocking_write_and_flush(self __wasi_io_streams_output_stream, list_u8_data unsafe.Pointer, list_u8_len uintptr, ret unsafe.Pointer)
 
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.read
 func __wasi_filesystem_types_method_descriptor_read(self __wasi_filesystem_descriptor, len uint64, offset uint64, ret unsafe.Pointer)
@@ -518,19 +470,11 @@ func getpagesize() int {
 //
 //go:export stat
 func stat(pathname *byte, ptr unsafe.Pointer) int32 {
-	pathLen := strlen(unsafe.Pointer(pathname))
-	pathStr := _string{
-		pathname, uintptr(pathLen),
-	}
-	path := *(*string)(unsafe.Pointer(&pathStr))
-	dir, path := findPreopenForPath(path)
-
-	pathWasiStr := __wasi_string{
-		unsafe.Pointer(pathname), uint32(pathLen),
-	}
+	path := goString(pathname)
+	dir, _ := findPreopenForPath(path)
 
 	var ret __wasi_result_filesystem_descriptor_stat_error
-	__wasi_filesystem_types_method_descriptor_stat_at(dir, __wasi_filesystem_path_flag_symlink_follow, pathWasiStr, &ret)
+	__wasi_filesystem_types_method_descriptor_stat_at(dir, __wasi_filesystem_path_flag_symlink_follow, path, &ret)
 	if ret.isErr {
 		error_code := *(*__wasi_filesystem_error)(unsafe.Add(unsafe.Pointer(&ret), 8))
 		libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(error_code)))
@@ -645,25 +589,17 @@ func setStatFromWASIStat(sstat *Stat_t, wstat *__wasi_filesystem_descriptor_stat
 }
 
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.stat-at
-func __wasi_filesystem_types_method_descriptor_stat_at(d __wasi_filesystem_descriptor, flags __wasi_filesystem_path_flags, path __wasi_string, ret *__wasi_result_filesystem_descriptor_stat_error)
+func __wasi_filesystem_types_method_descriptor_stat_at(d __wasi_filesystem_descriptor, flags __wasi_filesystem_path_flags, path string, ret *__wasi_result_filesystem_descriptor_stat_error)
 
 // int lstat(const char *path, struct stat * buf);
 //
 //go:export lstat
 func lstat(pathname *byte, ptr unsafe.Pointer) int32 {
-	pathLen := strlen(unsafe.Pointer(pathname))
-	pathStr := _string{
-		pathname, uintptr(pathLen),
-	}
-	path := *(*string)(unsafe.Pointer(&pathStr))
+	path := goString(pathname)
 	dir, path := findPreopenForPath(path)
 
-	pathWasiStr := __wasi_string{
-		unsafe.Pointer(pathname), uint32(pathLen),
-	}
-
 	var ret __wasi_result_filesystem_descriptor_stat_error
-	__wasi_filesystem_types_method_descriptor_stat_at(dir, 0, pathWasiStr, &ret)
+	__wasi_filesystem_types_method_descriptor_stat_at(dir, 0, path, &ret)
 	if ret.isErr {
 		error_code := *(*__wasi_filesystem_error)(unsafe.Add(unsafe.Pointer(&ret), 8))
 		libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(error_code)))
@@ -729,6 +665,7 @@ const (
 	__wasi_filesystem_open_at_flags_truncate
 )
 
+// FIXME(ydnar): opening a stripped path fails, so ignore it.
 func findPreopenForPath(path string) (__wasi_filesystem_descriptor, string) {
 	for k, v := range __wasi_filesystem_preopens {
 		if strings.HasPrefix(path, k) {
@@ -743,13 +680,8 @@ func findPreopenForPath(path string) (__wasi_filesystem_descriptor, string) {
 //
 //go:export open
 func open(pathname *byte, flags int32, mode uint32) int32 {
-	pathLen := strlen(unsafe.Pointer(pathname))
-	pathStr := _string{
-		pathname, uintptr(pathLen),
-	}
-	path := *(*string)(unsafe.Pointer(&pathStr))
-
-	dir, path := findPreopenForPath(path)
+	path := goString(pathname)
+	dir, _ := findPreopenForPath(path)
 
 	var dflags __wasi_filesystem_descriptor_flags
 	if (flags & O_RDONLY) == O_RDONLY {
@@ -779,12 +711,8 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 		pflags &^= __wasi_filesystem_path_flag_symlink_follow
 	}
 
-	pathWasiStr := __wasi_string{
-		unsafe.Pointer(pathname), uint32(pathLen),
-	}
-
 	var ret __wasi_result_descriptor_error
-	__wasi_filesystem_types_descriptor_open_at(dir, pflags, pathWasiStr.data, int32(pathWasiStr.len), oflags, dflags, &ret)
+	__wasi_filesystem_types_descriptor_open_at(dir, pflags, path, oflags, dflags, &ret)
 	if ret.isErr {
 		libcErrno = uintptr(__wasi_filesystem_err_to_errno(__wasi_filesystem_error(ret.val)))
 		return -1
@@ -954,7 +882,7 @@ type __wasi_result_descriptor_error struct {
 }
 
 //go:wasmimport wasi:filesystem/types@0.2.0-rc-2023-11-10 [method]descriptor.open-at
-func __wasi_filesystem_types_descriptor_open_at(dir __wasi_filesystem_descriptor, path_flags __wasi_filesystem_path_flags, path_ptr unsafe.Pointer, path_len int32, open_flags __wasi_filesystem_open_at_flags, flags __wasi_filesystem_descriptor_flags, ret *__wasi_result_descriptor_error)
+func __wasi_filesystem_types_descriptor_open_at(dir __wasi_filesystem_descriptor, path_flags __wasi_filesystem_path_flags, path string, open_flags __wasi_filesystem_open_at_flags, flags __wasi_filesystem_descriptor_flags, ret *__wasi_result_descriptor_error)
 
 // DIR *fdopendir(int);
 //
