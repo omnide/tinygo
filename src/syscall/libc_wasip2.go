@@ -547,18 +547,13 @@ func stat(pathname *byte, ptr unsafe.Pointer) int32 {
 type __wasi_filesystem_descriptor_linkcount uint64
 type __wasi_filesystem_descriptor_filesize uint64
 
-type __wasi_option_datetime struct {
-	isSome bool
-	t      wallclock.DateTime
-}
-
 type __wasi_filesystem_descriptor_stat struct {
 	typ                         __wasi_filesystem_descriptor_type
 	link_count                  __wasi_filesystem_descriptor_linkcount
 	filesize                    __wasi_filesystem_descriptor_filesize
-	data_access_timestamp       __wasi_option_datetime
-	data_modification_timestamp __wasi_option_datetime
-	status_change_timestamp     __wasi_option_datetime
+	data_access_timestamp       cm.Option[wallclock.DateTime]
+	data_modification_timestamp cm.Option[wallclock.DateTime]
+	status_change_timestamp     cm.Option[wallclock.DateTime]
 }
 
 type __wasi_filesystem_descriptor_type uint8
@@ -635,12 +630,12 @@ func setStatFromWASIStat(sstat *Stat_t, wstat *__wasi_filesystem_descriptor_stat
 	sstat.Blksize = 512
 	sstat.Blocks = (sstat.Size + 511) / int64(sstat.Blksize)
 
-	setOptTime := func(t *Timespec, o *__wasi_option_datetime) {
+	setOptTime := func(t *Timespec, o *cm.Option[wallclock.DateTime]) {
 		t.Sec = 0
 		t.Nsec = 0
-		if o.isSome {
-			t.Sec = int32(o.t.Seconds)
-			t.Nsec = int64(o.t.Nanoseconds)
+		if some, ok := o.Some(); ok {
+			t.Sec = int32(some.Seconds)
+			t.Nsec = int64(some.Nanoseconds)
 		}
 	}
 
