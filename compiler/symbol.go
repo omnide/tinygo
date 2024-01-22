@@ -391,8 +391,8 @@ func isValidWasmType(typ types.Type, isReturn bool) bool {
 		case types.String:
 			return true
 		}
-	case *types.Struct, *types.Array:
-		return !isReturn
+	case *types.Struct:
+		return true
 	case *types.Pointer:
 		return isValidWasmType(typ.Elem(), isReturn)
 	}
