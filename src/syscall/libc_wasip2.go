@@ -13,6 +13,7 @@ import (
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stdin"
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stdout"
 	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
+	"github.com/ydnar/wasm-tools-go/wasi/filesystem/preopens"
 	"github.com/ydnar/wasm-tools-go/wasi/filesystem/types"
 	"github.com/ydnar/wasm-tools-go/wasi/io/streams"
 )
@@ -537,9 +538,7 @@ var wasiCWD types.Descriptor
 var wasiPreopens map[string]types.Descriptor
 
 func populatePreopens() {
-	var result cm.List[cm.Tuple[types.Descriptor, string]]
-	__wasi_filesystem_preopens_get_directories(&result)
-	dirs := result.Slice()
+	dirs := preopens.GetDirectories().Slice()
 	preopens := make(map[string]types.Descriptor, len(dirs))
 	for _, tup := range dirs {
 		desc, path := tup.V0, tup.V1
@@ -550,9 +549,6 @@ func populatePreopens() {
 	}
 	wasiPreopens = preopens
 }
-
-//go:wasmimport wasi:filesystem/preopens@0.2.0-rc-2023-11-10 get-directories
-func __wasi_filesystem_preopens_get_directories(result *cm.List[cm.Tuple[types.Descriptor, string]])
 
 // FIXME(ydnar): opening a stripped path fails, so ignore it.
 func findPreopenForPath(path string) (types.Descriptor, string) {
