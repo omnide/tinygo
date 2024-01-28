@@ -17,7 +17,7 @@ type timeUnit int64
 //export __wasm_call_ctors
 func __wasm_call_ctors()
 
-//export wasi:cli/run@0.2.0-rc-2023-12-05#run
+//export wasi:cli/run@0.2.0#run
 func __wasi_cli_run_run() uint32 {
 	_start()
 	return 0
