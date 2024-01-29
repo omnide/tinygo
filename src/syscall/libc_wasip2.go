@@ -592,7 +592,8 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 
 	// By default, follow symlinks for open() unless O_NOFOLLOW was passed
 	var pflags types.PathFlags = types.PathFlagsSymlinkFollow
-	if flags&O_NOFOLLOW == 0 { // FIXME(ydnar): is == 0 right?
+	if flags&O_NOFOLLOW == O_NOFOLLOW {
+		// O_NOFOLLOW was passed, so turn off SymlinkFollow
 		pflags &^= types.PathFlagsSymlinkFollow
 	}
 
