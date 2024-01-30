@@ -8,6 +8,7 @@ import (
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stdout"
 	"github.com/ydnar/wasm-tools-go/wasi/clocks/monotonicclock"
 	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
+	"github.com/ydnar/wasm-tools-go/wasi/random/random"
 )
 
 const putcharBufferSize = 120
@@ -71,4 +72,8 @@ func procPin() {
 
 //go:linkname procUnpin sync/atomic.runtime_procUnpin
 func procUnpin() {
+}
+
+func hardwareRand() (n uint64, ok bool) {
+	return random.GetRandomU64(), true
 }
