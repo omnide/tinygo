@@ -43,7 +43,7 @@ func write(fd int32, buf *byte, count uint) int {
 		return writeStdout(fd, buf, count, 0)
 	}
 
-	stream, ok := wasiStreams[fd]
+	stream, ok := wasiFiles[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
 		libcErrno = uintptr(EBADF)
@@ -71,7 +71,7 @@ func read(fd int32, buf *byte, count uint) int {
 		return readStdin(fd, buf, count, 0)
 	}
 
-	stream, ok := wasiStreams[fd]
+	stream, ok := wasiFiles[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
 		libcErrno = uintptr(EBADF)
@@ -114,7 +114,7 @@ type wasiFile struct {
 //   but for regular files we can use the descriptor and explicitly write a buffer to the offset?
 //   The mismatch comes from trying to combine these.
 
-var wasiStreams map[int32]*wasiFile = make(map[int32]*wasiFile)
+var wasiFiles map[int32]*wasiFile = make(map[int32]*wasiFile)
 var nextLibcFd = int32(Stderr) + 1
 
 var wasiErrno error
@@ -211,7 +211,7 @@ func pread(fd int32, buf *byte, count uint, offset int64) int {
 		return -1
 	}
 
-	streams, ok := wasiStreams[fd]
+	streams, ok := wasiFiles[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
 		libcErrno = uintptr(EBADF)
@@ -250,7 +250,7 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 		return writeStdout(fd, buf, count, offset)
 	}
 
-	streams, ok := wasiStreams[fd]
+	streams, ok := wasiFiles[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
 		libcErrno = uintptr(EBADF)
@@ -281,7 +281,7 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 //
 //go:export lseek
 func lseek(fd int32, offset int64, whence int) int64 {
-	stream, ok := wasiStreams[fd]
+	stream, ok := wasiFiles[fd]
 	if !ok {
 		libcErrno = uintptr(EBADF)
 		return -1
@@ -309,7 +309,7 @@ func lseek(fd int32, offset int64, whence int) int64 {
 //
 //go:export close
 func close(fd int32) int32 {
-	streams, ok := wasiStreams[fd]
+	streams, ok := wasiFiles[fd]
 	if !ok {
 		libcErrno = uintptr(EBADF)
 		return -1
@@ -320,7 +320,7 @@ func close(fd int32) int32 {
 	streams.d.ResourceDrop()
 	// }
 
-	delete(wasiStreams, fd)
+	delete(wasiFiles, fd)
 
 	return 0
 }
@@ -453,7 +453,7 @@ func fstat(fd int32, dst *Stat_t) int32 {
 		return -1
 	}
 
-	stream, ok := wasiStreams[fd]
+	stream, ok := wasiFiles[fd]
 	if !ok {
 		libcErrno = uintptr(EBADF)
 		return -1
@@ -622,7 +622,7 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 	libcfd := nextLibcFd
 	nextLibcFd++
 
-	wasiStreams[libcfd] = &stream
+	wasiFiles[libcfd] = &stream
 
 	return int32(libcfd)
 }
