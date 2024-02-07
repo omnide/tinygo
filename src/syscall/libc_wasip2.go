@@ -430,9 +430,9 @@ func getpagesize() int {
 //go:export stat
 func stat(pathname *byte, dst *Stat_t) int32 {
 	path := goString(pathname)
-	dir, _ := findPreopenForPath(path)
+	dir, relPath := findPreopenForPath(path)
 
-	result := dir.Stat()
+	result := dir.StatAt(0, relPath)
 	if code, isErr := result.Err(); isErr {
 		libcErrno = uintptr(errorCodeToErrno(code))
 		return -1
