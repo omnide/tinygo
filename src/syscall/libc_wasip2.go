@@ -317,6 +317,12 @@ func lseek(fd int32, offset int64, whence int) int64 {
 //
 //go:export close
 func close(fd int32) int32 {
+	if _, ok := wasiStreams[fd]; ok {
+		// TODO(dgryski): Do we need to do any stdin/stdout/stderr cleanup here?
+		delete(wasiSreams, fd)
+		return 0
+	}
+
 	streams, ok := wasiFiles[fd]
 	if !ok {
 		libcErrno = uintptr(EBADF)
