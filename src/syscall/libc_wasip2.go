@@ -49,11 +49,6 @@ func write(fd int32, buf *byte, count uint) int {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	// TODO(ydnar): -1 not possible in uint32
-	// if stream.d == -1 {
-	// 	libcErrno = uintptr(EBADF)
-	// 	return -1
-	// }
 
 	n := pwrite(fd, buf, count, int64(stream.offset))
 	if n == -1 {
@@ -77,11 +72,6 @@ func read(fd int32, buf *byte, count uint) int {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	// TODO(ydnar): -1 not possible in uint32
-	// if stream.d == -1 {
-	// 	libcErrno = uintptr(EBADF)
-	// 	return -1
-	// }
 
 	n := pread(fd, buf, count, int64(stream.offset))
 	if n == -1 {
@@ -333,11 +323,7 @@ func close(fd int32) int32 {
 		return -1
 	}
 
-	// TODO(ydnar): -1 not possible in uint32
-	// if streams.d != -1 {
 	streams.d.ResourceDrop()
-	// }
-
 	delete(wasiFiles, fd)
 
 	return 0
