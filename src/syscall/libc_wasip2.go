@@ -39,8 +39,8 @@ func strlen(cstr *byte) uintptr {
 //
 //go:export write
 func write(fd int32, buf *byte, count uint) int {
-	if -1 <= fd && fd <= Stderr {
-		return writeStdout(fd, buf, count, 0)
+	if stream, ok := wasiStreams[fd]; ok {
+		return writeStream(stream, buf, count, 0)
 	}
 
 	stream, ok := wasiFiles[fd]
@@ -67,8 +67,8 @@ func write(fd int32, buf *byte, count uint) int {
 //
 //go:export read
 func read(fd int32, buf *byte, count uint) int {
-	if -1 <= fd && fd <= Stderr {
-		return readStdin(fd, buf, count, 0)
+	if stream, ok := wasiStreams[fd]; ok {
+		return readStream(stream, buf, count, 0)
 	}
 
 	stream, ok := wasiFiles[fd]
@@ -119,19 +119,46 @@ var nextLibcFd = int32(Stderr) + 1
 
 var wasiErrno error
 
-func readStdin(fd int32, buf *byte, count uint, offset int64) int {
-	if fd != 0 {
-		// TODO(dgryski): Not sure this will place nicely wit `dup()` and processes which close stdin
-		panic("non-stdin passed to readStdin")
+type wasiStream struct {
+	in  *streams.InputStream
+	out *streams.OutputStream
+}
+
+// This holds entries for stdin/stdout/stderr.
+
+var wasiStreams map[int32]*wasiStream
+
+func init() {
+	sin := stdin.GetStdin()
+	sout := stdout.GetStdout()
+	serr := stderr.GetStderr()
+	wasiStreams = map[int32]*wasiStream{
+		0: &wasiStream{
+			in: &sin,
+		},
+		1: &wasiStream{
+			out: &sout,
+		},
+		2: &wasiStream{
+			out: &serr,
+		},
 	}
-	wasiStdin := stdin.GetStdin()
+}
+
+func readStream(stream *wasiStream, buf *byte, count uint, offset int64) int {
+	if stream.in == nil {
+		// not a stream we can read from
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+
 	if offset != 0 {
 		libcErrno = uintptr(EINVAL)
 		return -1
 	}
 
 	libcErrno = 0
-	result := wasiStdin.BlockingRead(uint64(count))
+	result := stream.in.BlockingRead(uint64(count))
 	if err, isErr := result.Err(); isErr {
 		if err.Closed() {
 			libcErrno = 0
@@ -149,15 +176,11 @@ func readStdin(fd int32, buf *byte, count uint, offset int64) int {
 	return int(list.Len())
 }
 
-func writeStdout(fd int32, buf *byte, count uint, offset int64) int {
-	var stream streams.OutputStream
-	switch fd {
-	case 1:
-		stream = stdout.GetStdout()
-	case 2:
-		stream = stderr.GetStderr()
-	default:
-		panic("non-stdout/err passed to writeStdout")
+func writeStream(stream *wasiStream, buf *byte, count uint, offset int64) int {
+	if stream.out == nil {
+		// not a stream we can write to
+		libcErrno = uintptr(EBADF)
+		return -1
 	}
 
 	if offset != 0 {
@@ -175,7 +198,7 @@ func writeStdout(fd int32, buf *byte, count uint, offset int64) int {
 		if len > remaining {
 			len = remaining
 		}
-		result := stream.BlockingWriteAndFlush(cm.ToList(src[:len]))
+		result := stream.out.BlockingWriteAndFlush(cm.ToList(src[:len]))
 		if err, isErr := result.Err(); isErr {
 			if err.Closed() {
 				libcErrno = 0
@@ -201,14 +224,9 @@ func memcpy(dst, src unsafe.Pointer, size uintptr)
 func pread(fd int32, buf *byte, count uint, offset int64) int {
 	// TODO(dgryski): Need to be consistent about all these checks; EBADF/EINVAL/... ?
 
-	if -1 < fd && fd <= Stderr {
-		if fd == Stdin {
-			return readStdin(fd, buf, count, offset)
-		}
+	if stream, ok := wasiStreams[fd]; ok {
+		return readStream(stream, buf, count, offset)
 
-		// stdout/stderr not open for reading
-		libcErrno = uintptr(EBADF)
-		return -1
 	}
 
 	streams, ok := wasiFiles[fd]
@@ -246,8 +264,8 @@ func pread(fd int32, buf *byte, count uint, offset int64) int {
 //go:export pwrite
 func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 	// TODO(dgryski): Need to be consistent about all these checks; EBADF/EINVAL/... ?
-	if -1 <= fd && fd <= Stderr {
-		return writeStdout(fd, buf, count, offset)
+	if stream, ok := wasiStreams[fd]; ok {
+		return writeStream(stream, buf, count, 0)
 	}
 
 	streams, ok := wasiFiles[fd]
@@ -448,7 +466,7 @@ func stat(pathname *byte, dst *Stat_t) int32 {
 //
 //go:export fstat
 func fstat(fd int32, dst *Stat_t) int32 {
-	if -1 < fd && fd <= Stderr {
+	if _, ok := wasiStreams[fd]; ok {
 		// TODO(dgryski): fill in stat buffer for stdin etc
 		return -1
 	}
