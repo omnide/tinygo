@@ -26,9 +26,9 @@ func putchar(c byte) {
 	if c == '\n' || putcharPosition >= putcharBufferSize {
 		list := cm.NewList(&putcharBuffer[0], putcharPosition)
 		result := putcharStdout.BlockingWriteAndFlush(list)
-		if err, isErr := result.Err(); isErr {
+		if err := result.Err(); err != nil {
 			// TODO(ydnar): handle error case
-			panic(err)
+			panic(*err)
 		}
 		putcharPosition = 0
 	}

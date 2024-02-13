@@ -149,19 +149,19 @@ func readStream(stream *wasiStream, buf *byte, count uint, offset int64) int {
 
 	libcErrno = 0
 	result := stream.in.BlockingRead(uint64(count))
-	if err, isErr := result.Err(); isErr {
+	if err := result.Err(); err != nil {
 		if err.Closed() {
 			libcErrno = 0
 			return 0
-		} else if err, ok := err.LastOperationFailed(); ok {
-			wasiErrno = err
+		} else if err := err.LastOperationFailed(); err != nil {
+			wasiErrno = *err
 			libcErrno = uintptr(EWASIERROR)
 		}
 		return -1
 	}
 
-	list, _ := result.OK()
 	dst := unsafe.Slice(buf, count)
+	list := result.OK()
 	copy(dst, list.Slice())
 	return int(list.Len())
 }
@@ -189,12 +189,12 @@ func writeStream(stream *wasiStream, buf *byte, count uint, offset int64) int {
 			len = remaining
 		}
 		result := stream.out.BlockingWriteAndFlush(cm.ToList(src[:len]))
-		if err, isErr := result.Err(); isErr {
+		if err := result.Err(); err != nil {
 			if err.Closed() {
 				libcErrno = 0
 				return 0
-			} else if err, ok := err.LastOperationFailed(); ok {
-				wasiErrno = err
+			} else if err := err.LastOperationFailed(); err != nil {
+				wasiErrno = *err
 				libcErrno = uintptr(EWASIERROR)
 			}
 			return -1
@@ -236,13 +236,12 @@ func pread(fd int32, buf *byte, count uint, offset int64) int {
 	}
 
 	result := streams.d.Read(types.FileSize(count), types.FileSize(offset))
-	if code, isErr := result.Err(); isErr {
-		libcErrno = uintptr(errorCodeToErrno(code))
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
 		return -1
 	}
 
-	listAndEOF, _ := result.OK()
-	list := listAndEOF.V0
+	list := result.OK().V0
 	copy(unsafe.Slice(buf, count), list.Slice())
 
 	// TODO(dgryski): EOF bool is ignored?
@@ -275,14 +274,13 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 	}
 
 	result := streams.d.Write(cm.NewList(buf, count), types.FileSize(offset))
-	if code, isErr := result.Err(); isErr {
+	if err := result.Err(); err != nil {
 		// TODO(dgryski):
-		libcErrno = uintptr(errorCodeToErrno(code))
+		libcErrno = uintptr(errorCodeToErrno(*err))
 		return -1
 	}
 
-	size, _ := result.OK()
-	return int(size)
+	return int(*result.OK())
 }
 
 // ssize_t lseek(int fd, off_t offset, int whence);
@@ -302,12 +300,11 @@ func lseek(fd int32, offset int64, whence int) int64 {
 		stream.offset += offset
 	case 2: // SEEK_END
 		result := stream.d.Stat()
-		if code, isErr := result.Err(); isErr {
-			libcErrno = uintptr(errorCodeToErrno(code))
+		if err := result.Err(); err != nil {
+			libcErrno = uintptr(errorCodeToErrno(*err))
 			return -1
 		}
-		stat, _ := result.OK()
-		stream.offset = int64(stat.Size) + offset
+		stream.offset = int64(result.OK().Size) + offset
 	}
 
 	return int64(stream.offset)
@@ -443,13 +440,12 @@ func stat(pathname *byte, dst *Stat_t) int32 {
 	dir, relPath := findPreopenForPath(path)
 
 	result := dir.StatAt(0, relPath)
-	if code, isErr := result.Err(); isErr {
-		libcErrno = uintptr(errorCodeToErrno(code))
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
 		return -1
 	}
 
-	wasiStat, _ := result.OK()
-	setStatFromWASIStat(dst, &wasiStat)
+	setStatFromWASIStat(dst, result.OK())
 
 	return 0
 }
@@ -475,13 +471,12 @@ func fstat(fd int32, dst *Stat_t) int32 {
 	// }
 
 	result := stream.d.Stat()
-	if code, isErr := result.Err(); isErr {
-		libcErrno = uintptr(errorCodeToErrno(code))
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
 		return -1
 	}
 
-	wasiStat, _ := result.OK()
-	setStatFromWASIStat(dst, &wasiStat)
+	setStatFromWASIStat(dst, result.OK())
 
 	return 0
 }
@@ -506,18 +501,18 @@ func setStatFromWASIStat(sstat *Stat_t, wstat *types.DescriptorStat) {
 	sstat.Blksize = 512
 	sstat.Blocks = (sstat.Size + 511) / int64(sstat.Blksize)
 
-	setOptTime := func(t *Timespec, o *cm.Option[wallclock.DateTime]) {
+	setOptTime := func(t *Timespec, o *wallclock.DateTime) {
 		t.Sec = 0
 		t.Nsec = 0
-		if some, ok := o.Some(); ok {
-			t.Sec = int32(some.Seconds)
-			t.Nsec = int64(some.Nanoseconds)
+		if o != nil {
+			t.Sec = int32(o.Seconds)
+			t.Nsec = int64(o.Nanoseconds)
 		}
 	}
 
-	setOptTime(&sstat.Atim, &wstat.DataAccessTimestamp)
-	setOptTime(&sstat.Mtim, &wstat.DataModificationTimestamp)
-	setOptTime(&sstat.Ctim, &wstat.StatusChangeTimestamp)
+	setOptTime(&sstat.Atim, wstat.DataAccessTimestamp.Some())
+	setOptTime(&sstat.Mtim, wstat.DataModificationTimestamp.Some())
+	setOptTime(&sstat.Ctim, wstat.StatusChangeTimestamp.Some())
 }
 
 // int lstat(const char *path, struct stat * buf);
@@ -528,13 +523,12 @@ func lstat(pathname *byte, dst *Stat_t) int32 {
 	dir, relPath := findPreopenForPath(path)
 
 	result := dir.StatAt(0, relPath)
-	if code, isErr := result.Err(); isErr {
-		libcErrno = uintptr(errorCodeToErrno(code))
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
 		return -1
 	}
 
-	wasiStat, _ := result.OK()
-	setStatFromWASIStat(dst, &wasiStat)
+	setStatFromWASIStat(dst, result.OK())
 
 	return 0
 }
@@ -608,25 +602,23 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 	}
 
 	result := dir.OpenAt(pflags, path, oflags, dflags)
-	if code, isErr := result.Err(); isErr {
-		libcErrno = uintptr(errorCodeToErrno(code))
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
 		return -1
 	}
 
-	desc, _ := result.OK()
 	stream := wasiFile{
-		d:     desc,
+		d:     *result.OK(),
 		oflag: flags,
 	}
 
 	if flags&(O_WRONLY|O_APPEND) == (O_WRONLY | O_APPEND) {
 		result := stream.d.Stat()
-		if code, isErr := result.Err(); isErr {
-			libcErrno = uintptr(errorCodeToErrno(code))
+		if err := result.Err(); err != nil {
+			libcErrno = uintptr(errorCodeToErrno(*err))
 			return -1
 		}
-		stat, _ := result.OK()
-		stream.offset = int64(stat.Size)
+		stream.offset = int64(result.OK().Size)
 	}
 
 	libcfd := nextLibcFd
