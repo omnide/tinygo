@@ -319,7 +319,7 @@ func lseek(fd int32, offset int64, whence int) int64 {
 func close(fd int32) int32 {
 	if _, ok := wasiStreams[fd]; ok {
 		// TODO(dgryski): Do we need to do any stdin/stdout/stderr cleanup here?
-		delete(wasiSreams, fd)
+		delete(wasiStreams, fd)
 		return 0
 	}
 
