@@ -113,6 +113,14 @@ type wasiFile struct {
 var wasiFiles map[int32]*wasiFile = make(map[int32]*wasiFile)
 var nextLibcFd = int32(Stderr) + 1
 
+func findFreeFD() int32 {
+	var newfd int32
+	for wasiStreams[newfd] != nil || wasiFiles[newfd] != nil {
+		newfd++
+	}
+	return newfd
+}
+
 var wasiErrno error
 
 type wasiStream struct {
@@ -346,7 +354,24 @@ func close(fd int32) int32 {
 //
 //go:export dup
 func dup(fd int32) int32 {
-	return 0
+	// is fd a stream?
+	if stream, ok := wasiStreams[fd]; ok {
+		newfd := findFreeFD()
+		wasiStreams[newfd] = stream
+		return newfd
+	}
+
+	// is fd a file?
+	if file, ok := wasiFiles[fd]; ok {
+		// scan for first free file descriptor
+		newfd := findFreeFD()
+		wasiFiles[newfd] = file
+		return newfd
+	}
+
+	// unknown file descriptor
+	libcErrno = uintptr(EBADF)
+	return -1
 }
 
 // void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
