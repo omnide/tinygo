@@ -45,7 +45,10 @@ func write(fd int32, buf *byte, count uint) int {
 
 	stream, ok := wasiFiles[fd]
 	if !ok {
-		// TODO(dgryski): EINVAL?
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+	if stream.d == cm.ResourceNone {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
@@ -68,7 +71,10 @@ func read(fd int32, buf *byte, count uint) int {
 
 	stream, ok := wasiFiles[fd]
 	if !ok {
-		// TODO(dgryski): EINVAL?
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+	if stream.d == cm.ResourceNone {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
@@ -225,11 +231,10 @@ func pread(fd int32, buf *byte, count uint, offset int64) int {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	// TODO(ydnar): -1 not possible in uint32
-	// if streams.d == -1 {
-	// 	libcErrno = uintptr(EBADF)
-	// 	return -1
-	// }
+	if streams.d == cm.ResourceNone {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
 	if streams.oflag&O_RDONLY == 0 {
 		libcErrno = uintptr(EBADF)
 		return -1
@@ -263,11 +268,10 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	// TODO(ydnar): -1 not possible in uint32
-	// if streams.d == -1 {
-	// 	libcErrno = uintptr(EBADF)
-	// 	return -1
-	// }
+	if streams.d == cm.ResourceNone {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
 	if streams.oflag&O_WRONLY == 0 {
 		libcErrno = uintptr(EBADF)
 		return -1
@@ -289,6 +293,10 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 func lseek(fd int32, offset int64, whence int) int64 {
 	stream, ok := wasiFiles[fd]
 	if !ok {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+	if streams.d == cm.ResourceNone {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
@@ -325,8 +333,10 @@ func close(fd int32) int32 {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-
-	streams.d.ResourceDrop()
+	if streams.d != cm.ResourceNone {
+		streams.d.ResourceDrop()
+		streams.d = 0
+	}
 	delete(wasiFiles, fd)
 
 	return 0
@@ -464,12 +474,10 @@ func fstat(fd int32, dst *Stat_t) int32 {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	// TODO(ydnar): -1 not possible in uint32
-	// if stream.d == -1 {
-	// 	libcErrno = uintptr(EBADF)
-	// 	return -1
-	// }
-
+	if streams.d == cm.ResourceNone {
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
 	result := stream.d.Stat()
 	if err := result.Err(); err != nil {
 		libcErrno = uintptr(errorCodeToErrno(*err))
