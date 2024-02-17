@@ -1464,6 +1464,12 @@ func main() {
 		flag.StringVar(&outpath, "o", "", "output filename")
 	}
 
+	var witPackage, witWorld string
+	if command == "help" || command == "build" || command == "test" {
+		flag.StringVar(&witPackage, "wit-package", "", "wit package for wasm component embedding")
+		flag.StringVar(&witWorld, "wit-world", "", "wit world for wasm component embedding")
+	}
+
 	var testConfig compileopts.TestConfig
 	if command == "help" || command == "test" {
 		flag.BoolVar(&testConfig.CompileOnly, "c", false, "compile the test binary but do not run it")
@@ -1543,6 +1549,8 @@ func main() {
 		Monitor:         *monitor,
 		BaudRate:        *baudrate,
 		Timeout:         *timeout,
+		WitPackage:      witPackage,
+		WitWorld:        witWorld,
 	}
 	if *printCommands {
 		options.PrintCommands = printCommand
