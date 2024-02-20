@@ -299,6 +299,12 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 //
 //go:export lseek
 func lseek(fd int32, offset int64, whence int) int64 {
+	if _, ok := wasiStreams[fd]; ok {
+		// can't lseek a stream
+		libcErrno = uintptr(EBADF)
+		return -1
+	}
+
 	stream, ok := wasiFiles[fd]
 	if !ok {
 		libcErrno = uintptr(EBADF)
