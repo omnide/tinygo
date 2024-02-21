@@ -310,7 +310,7 @@ func lseek(fd int32, offset int64, whence int) int64 {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	if streams.d == cm.ResourceNone {
+	if stream.d == cm.ResourceNone {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
@@ -505,7 +505,7 @@ func fstat(fd int32, dst *Stat_t) int32 {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
-	if streams.d == cm.ResourceNone {
+	if stream.d == cm.ResourceNone {
 		libcErrno = uintptr(EBADF)
 		return -1
 	}
