@@ -497,8 +497,33 @@ func symlink(from, to *byte) int32 {
 //
 //go:export fsync
 func fsync(fd int32) int32 {
-	return 0
+	if _, ok := wasiStreams[fd]; ok {
+		// can't sync a stream
+		libcErrno = EBADF
+		return -1
+	}
 
+	streams, ok := wasiFiles[fd]
+	if !ok {
+		libcErrno = EBADF
+		return -1
+	}
+	if streams.d == cm.ResourceNone {
+		libcErrno = EBADF
+		return -1
+	}
+	if streams.oflag&O_WRONLY == 0 {
+		libcErrno = EBADF
+		return -1
+	}
+
+	result := streams.d.SyncData()
+	if err := result.Err(); err != nil {
+		libcErrno = errorCodeToErrno(*err)
+		return -1
+	}
+
+	return 0
 }
 
 // ssize_t readlink(const char *path, void *buf, size_t count);
