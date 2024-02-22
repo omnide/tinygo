@@ -6,8 +6,8 @@ import (
 	"unsafe"
 
 	"github.com/ydnar/wasm-tools-go/wasi/cli/environment"
-	"github.com/ydnar/wasm-tools-go/wasi/clocks/monotonicclock"
-	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
+	monotonicclock "github.com/ydnar/wasm-tools-go/wasi/clocks/monotonic-clock"
+	wallclock "github.com/ydnar/wasm-tools-go/wasi/clocks/wall-clock"
 )
 
 type timeUnit int64

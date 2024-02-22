@@ -12,9 +12,10 @@ import (
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stderr"
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stdin"
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stdout"
-	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
+	wallclock "github.com/ydnar/wasm-tools-go/wasi/clocks/wall-clock"
 	"github.com/ydnar/wasm-tools-go/wasi/filesystem/preopens"
 	"github.com/ydnar/wasm-tools-go/wasi/filesystem/types"
+	ioerror "github.com/ydnar/wasm-tools-go/wasi/io/error"
 	"github.com/ydnar/wasm-tools-go/wasi/io/streams"
 )
 
@@ -121,7 +122,7 @@ func findFreeFD() int32 {
 	return newfd
 }
 
-var wasiErrno error
+var wasiErrno ioerror.Error
 
 type wasiStream struct {
 	in  *streams.InputStream
@@ -696,7 +697,7 @@ func errorCodeToErrno(err types.ErrorCode) Errno {
 		return EINTR
 	case types.ErrorCodeInvalid:
 		return EINVAL
-	case types.ErrorCodeIo:
+	case types.ErrorCodeIO:
 		return EIO
 	case types.ErrorCodeIsDirectory:
 		return EISDIR

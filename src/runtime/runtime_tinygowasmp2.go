@@ -6,8 +6,8 @@ import (
 	"github.com/ydnar/wasm-tools-go/cm"
 	"github.com/ydnar/wasm-tools-go/wasi/cli/exit"
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stdout"
-	"github.com/ydnar/wasm-tools-go/wasi/clocks/monotonicclock"
-	"github.com/ydnar/wasm-tools-go/wasi/clocks/wallclock"
+	monotonicclock "github.com/ydnar/wasm-tools-go/wasi/clocks/monotonic-clock"
+	wallclock "github.com/ydnar/wasm-tools-go/wasi/clocks/wall-clock"
 	"github.com/ydnar/wasm-tools-go/wasi/random/random"
 )
 

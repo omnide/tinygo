@@ -9,7 +9,7 @@ import (
 func Environ() []string {
 	var env []string
 	for _, kv := range environment.GetEnvironment().Slice() {
-		env = append(env, kv.V0+"="+kv.V1)
+		env = append(env, kv[0]+"="+kv[1])
 	}
 	return env
 }
