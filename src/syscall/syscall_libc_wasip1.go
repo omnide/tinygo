@@ -121,10 +121,10 @@ const (
 
 // TODO(dgryski): Need to figure out hack to make libcErrno work with wasip1 and wasip2.  Build tags and separate file would work.
 // This pragma doesn't work for variables: //go:extern errno
-var libcErrno uintptr
+var libcErrno Errno
 
 func getErrno() error {
-	return Errno(libcErrno)
+	return libcErrno
 }
 
 func (e Errno) Is(target error) bool {

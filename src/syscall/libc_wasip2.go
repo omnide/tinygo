@@ -46,11 +46,11 @@ func write(fd int32, buf *byte, count uint) int {
 
 	stream, ok := wasiFiles[fd]
 	if !ok {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	if stream.d == cm.ResourceNone {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 
@@ -72,11 +72,11 @@ func read(fd int32, buf *byte, count uint) int {
 
 	stream, ok := wasiFiles[fd]
 	if !ok {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	if stream.d == cm.ResourceNone {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 
@@ -153,12 +153,12 @@ func init() {
 func readStream(stream *wasiStream, buf *byte, count uint, offset int64) int {
 	if stream.in == nil {
 		// not a stream we can read from
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 
 	if offset != 0 {
-		libcErrno = uintptr(EINVAL)
+		libcErrno = EINVAL
 		return -1
 	}
 
@@ -170,7 +170,7 @@ func readStream(stream *wasiStream, buf *byte, count uint, offset int64) int {
 			return 0
 		} else if err := err.LastOperationFailed(); err != nil {
 			wasiErrno = *err
-			libcErrno = uintptr(EWASIERROR)
+			libcErrno = EWASIERROR
 		}
 		return -1
 	}
@@ -184,12 +184,12 @@ func readStream(stream *wasiStream, buf *byte, count uint, offset int64) int {
 func writeStream(stream *wasiStream, buf *byte, count uint, offset int64) int {
 	if stream.out == nil {
 		// not a stream we can write to
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 
 	if offset != 0 {
-		libcErrno = uintptr(EINVAL)
+		libcErrno = EINVAL
 		return -1
 	}
 
@@ -210,7 +210,7 @@ func writeStream(stream *wasiStream, buf *byte, count uint, offset int64) int {
 				return 0
 			} else if err := err.LastOperationFailed(); err != nil {
 				wasiErrno = *err
-				libcErrno = uintptr(EWASIERROR)
+				libcErrno = EWASIERROR
 			}
 			return -1
 		}
@@ -237,21 +237,21 @@ func pread(fd int32, buf *byte, count uint, offset int64) int {
 	streams, ok := wasiFiles[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	if streams.d == cm.ResourceNone {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	if streams.oflag&O_RDONLY == 0 {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 
 	result := streams.d.Read(types.FileSize(count), types.FileSize(offset))
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -274,22 +274,22 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 	streams, ok := wasiFiles[fd]
 	if !ok {
 		// TODO(dgryski): EINVAL?
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	if streams.d == cm.ResourceNone {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	if streams.oflag&O_WRONLY == 0 {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 
 	result := streams.d.Write(cm.NewList(buf, count), types.FileSize(offset))
 	if err := result.Err(); err != nil {
 		// TODO(dgryski):
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -302,17 +302,17 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 func lseek(fd int32, offset int64, whence int) int64 {
 	if _, ok := wasiStreams[fd]; ok {
 		// can't lseek a stream
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 
 	stream, ok := wasiFiles[fd]
 	if !ok {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	if stream.d == cm.ResourceNone {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 
@@ -324,7 +324,7 @@ func lseek(fd int32, offset int64, whence int) int64 {
 	case 2: // SEEK_END
 		result := stream.d.Stat()
 		if err := result.Err(); err != nil {
-			libcErrno = uintptr(errorCodeToErrno(*err))
+			libcErrno = errorCodeToErrno(*err)
 			return -1
 		}
 		stream.offset = int64(result.OK().Size) + offset
@@ -345,7 +345,7 @@ func close(fd int32) int32 {
 
 	streams, ok := wasiFiles[fd]
 	if !ok {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	if streams.d != cm.ResourceNone {
@@ -377,7 +377,7 @@ func dup(fd int32) int32 {
 	}
 
 	// unknown file descriptor
-	libcErrno = uintptr(EBADF)
+	libcErrno = EBADF
 	return -1
 }
 
@@ -425,7 +425,7 @@ func mkdir(pathname *byte, mode uint32) int32 {
 
 	result := dir.CreateDirectoryAt(relPath)
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -441,7 +441,7 @@ func rmdir(pathname *byte) int32 {
 
 	result := dir.RemoveDirectoryAt(relPath)
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -460,7 +460,7 @@ func rename(from, to *byte) int32 {
 
 	result := fromDir.RenameAt(fromRelPath, toDir, toRelPath)
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -478,7 +478,7 @@ func symlink(from, to *byte) int32 {
 	toDir, toRelPath := findPreopenForPath(toPath)
 
 	if fromDir != toDir {
-		libcErrno = uintptr(EACCES)
+		libcErrno = EACCES
 		return -1
 	}
 
@@ -486,7 +486,7 @@ func symlink(from, to *byte) int32 {
 
 	result := fromDir.SymlinkAt(fromRelPath, toRelPath)
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -510,7 +510,7 @@ func readlink(pathname *byte, buf *byte, count uint) int {
 
 	result := dir.ReadLinkAt(relPath)
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -533,7 +533,7 @@ func unlink(pathname *byte) int32 {
 
 	result := dir.UnlinkFileAt(relPath)
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -557,7 +557,7 @@ func stat(pathname *byte, dst *Stat_t) int32 {
 
 	result := dir.StatAt(0, relPath)
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -577,16 +577,16 @@ func fstat(fd int32, dst *Stat_t) int32 {
 
 	stream, ok := wasiFiles[fd]
 	if !ok {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	if stream.d == cm.ResourceNone {
-		libcErrno = uintptr(EBADF)
+		libcErrno = EBADF
 		return -1
 	}
 	result := stream.d.Stat()
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -638,7 +638,7 @@ func lstat(pathname *byte, dst *Stat_t) int32 {
 
 	result := dir.StatAt(0, relPath)
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -717,7 +717,7 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 
 	result := dir.OpenAt(pflags, path, oflags, dflags)
 	if err := result.Err(); err != nil {
-		libcErrno = uintptr(errorCodeToErrno(*err))
+		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
@@ -729,7 +729,7 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 	if flags&(O_WRONLY|O_APPEND) == (O_WRONLY | O_APPEND) {
 		result := stream.d.Stat()
 		if err := result.Err(); err != nil {
-			libcErrno = uintptr(errorCodeToErrno(*err))
+			libcErrno = errorCodeToErrno(*err)
 			return -1
 		}
 		stream.offset = int64(result.OK().Size)
