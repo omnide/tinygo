@@ -420,6 +420,15 @@ func chmod(pathname *byte, mode uint32) int32 {
 //
 //go:export mkdir
 func mkdir(pathname *byte, mode uint32) int32 {
+	path := goString(pathname)
+	dir, relPath := findPreopenForPath(path)
+
+	result := dir.CreateDirectoryAt(relPath)
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
+		return -1
+	}
+
 	return 0
 }
 
@@ -427,6 +436,15 @@ func mkdir(pathname *byte, mode uint32) int32 {
 //
 //go:export rmdir
 func rmdir(pathname *byte) int32 {
+	path := goString(pathname)
+	dir, relPath := findPreopenForPath(path)
+
+	result := dir.RemoveDirectoryAt(relPath)
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
+		return -1
+	}
+
 	return 0
 }
 
@@ -434,6 +452,18 @@ func rmdir(pathname *byte) int32 {
 //
 //go:export rename
 func rename(from, to *byte) int32 {
+	fromPath := goString(from)
+	fromDir, fromRelPath := findPreopenForPath(fromPath)
+
+	toPath := goString(to)
+	toDir, toRelPath := findPreopenForPath(toPath)
+
+	result := fromDir.RenameAt(fromRelPath, toDir, toRelPath)
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
+		return -1
+	}
+
 	return 0
 }
 
@@ -441,6 +471,25 @@ func rename(from, to *byte) int32 {
 //
 //go:export symlink
 func symlink(from, to *byte) int32 {
+	fromPath := goString(from)
+	fromDir, fromRelPath := findPreopenForPath(fromPath)
+
+	toPath := goString(to)
+	toDir, toRelPath := findPreopenForPath(toPath)
+
+	if fromDir != toDir {
+		libcErrno = uintptr(EACCES)
+		return -1
+	}
+
+	// TODO(dgryski): check fromDir == toDir?
+
+	result := fromDir.SymlinkAt(fromRelPath, toRelPath)
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
+		return -1
+	}
+
 	return 0
 }
 
@@ -455,14 +504,39 @@ func fsync(fd int32) int32 {
 // ssize_t readlink(const char *path, void *buf, size_t count);
 //
 //go:export readlink
-func readlink(path *byte, buf *byte, count uint) int {
-	return 0
+func readlink(pathname *byte, buf *byte, count uint) int {
+	path := goString(pathname)
+	dir, relPath := findPreopenForPath(path)
+
+	result := dir.ReadLinkAt(relPath)
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
+		return -1
+	}
+
+	s := *result.OK()
+	size := uintptr(count)
+	if size > uintptr(len(s)) {
+		size = uintptr(len(s))
+	}
+
+	memcpy(unsafe.Pointer(buf), unsafe.Pointer(unsafe.StringData(s)), size)
+	return int(size)
 }
 
 // int unlink(const char *pathname);
 //
 //go:export unlink
 func unlink(pathname *byte) int32 {
+	path := goString(pathname)
+	dir, relPath := findPreopenForPath(path)
+
+	result := dir.UnlinkFileAt(relPath)
+	if err := result.Err(); err != nil {
+		libcErrno = uintptr(errorCodeToErrno(*err))
+		return -1
+	}
+
 	return 0
 }
 
