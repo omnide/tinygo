@@ -848,23 +848,120 @@ func errorCodeToErrno(err types.ErrorCode) Errno {
 	return Errno(err)
 }
 
+type libc_DIR struct {
+	d types.DirectoryEntryStream
+}
+
 // DIR *fdopendir(int);
 //
 //go:export fdopendir
 func fdopendir(fd int32) unsafe.Pointer {
-	return nil
+	if _, ok := wasiStreams[fd]; ok {
+		libcErrno = EBADF
+		return nil
+	}
+
+	stream, ok := wasiFiles[fd]
+	if !ok {
+		libcErrno = EBADF
+		return nil
+	}
+	if stream.d == cm.ResourceNone {
+		libcErrno = EBADF
+		return nil
+	}
+
+	result := stream.d.ReadDirectory()
+	if err := result.Err(); err != nil {
+		libcErrno = errorCodeToErrno(*err)
+		return nil
+	}
+
+	return unsafe.Pointer(&libc_DIR{d: *result.OK()})
 }
 
 // int fdclosedir(DIR *);
 //
 //go:export fdclosedir
-func fdclosedir(unsafe.Pointer) int32 {
+func fdclosedir(dirp unsafe.Pointer) int32 {
+	if dirp == nil {
+		return 0
+
+	}
+	dir := (*libc_DIR)(dirp)
+	if dir.d == cm.ResourceNone {
+		return 0
+	}
+
+	dir.d.ResourceDrop()
+	dir.d = cm.ResourceNone
+
 	return 0
 }
 
 // struct dirent *readdir(DIR *);
 //
 //go:export readdir
-func readdir(unsafe.Pointer) *Dirent {
-	return nil
+func readdir(dirp unsafe.Pointer) *Dirent {
+	if dirp == nil {
+		return nil
+
+	}
+	dir := (*libc_DIR)(dirp)
+	if dir.d == cm.ResourceNone {
+		return nil
+	}
+
+	result := dir.d.ReadDirectoryEntry()
+	if err := result.Err(); err != nil {
+		libcErrno = errorCodeToErrno(*err)
+		return nil
+	}
+
+	entry := result.OK().Some()
+	if entry == nil {
+		libcErrno = 0
+		return nil
+	}
+
+	// The dirent C struct uses a flexible array member to indicate that the
+	// directory name is laid out in memory right after the struct data:
+	//
+	// struct dirent {
+	//   ino_t d_ino;
+	//   unsigned char d_type;
+	//   char d_name[];
+	// };
+	buf := make([]byte, unsafe.Sizeof(Dirent{})+uintptr(len(entry.Name)))
+	dirent := (*Dirent)((unsafe.Pointer)(&buf[0]))
+
+	// No inodes in wasi
+	dirent.Ino = 0
+	dirent.Type = p2fileTypeToLibcType(entry.Type)
+	copy(buf[unsafe.Offsetof(dirent.Type)+1:], entry.Name)
+
+	return dirent
+}
+
+func p2fileTypeToLibcType(t types.DescriptorType) uint8 {
+	switch t {
+	case types.DescriptorTypeUnknown:
+		return DT_UNKNOWN
+	case types.DescriptorTypeBlockDevice:
+		return DT_BLK
+	case types.DescriptorTypeCharacterDevice:
+		return DT_CHR
+	case types.DescriptorTypeDirectory:
+		return DT_DIR
+	case types.DescriptorTypeFIFO:
+		return DT_FIFO
+	case types.DescriptorTypeSymbolicLink:
+		return DT_LNK
+	case types.DescriptorTypeRegularFile:
+		return DT_REG
+	case types.DescriptorTypeSocket:
+		return DT_FIFO
+	}
+
+	return DT_UNKNOWN
 }
