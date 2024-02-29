@@ -385,21 +385,24 @@ func dup(fd int32) int32 {
 //
 //go:export mmap
 func mmap(addr unsafe.Pointer, length uintptr, prot, flags, fd int32, offset uintptr) unsafe.Pointer {
-	return nil
+	libcErrno = ENOSYS
+	return unsafe.Pointer(^uintptr(0))
 }
 
 // int munmap(void *addr, size_t length);
 //
 //go:export munmap
 func munmap(addr unsafe.Pointer, length uintptr) int32 {
-	return 0
+	libcErrno = ENOSYS
+	return -1
 }
 
 // int mprotect(void *addr, size_t len, int prot);
 //
 //go:export mprotect
 func mprotect(addr unsafe.Pointer, len uintptr, prot int32) int32 {
-	return 0
+	libcErrno = ENOSYS
+	return -1
 }
 
 // int chdir(const char *pathname, mode_t mode);
