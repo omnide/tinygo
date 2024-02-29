@@ -847,16 +847,23 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 			}
 
 			// Run wasm-tools for component-model binaries
-			hasWitOptions := config.Options.WitPackage != "" && config.Options.WitWorld != ""
-			if config.Options.Target == "wasip2" && hasWitOptions {
+			witPackage := strings.ReplaceAll(config.Target.WitPackage, "{root}", goenv.Get("TINYGOROOT"))
+			if config.Options.WitPackage != "" {
+				witPackage = config.Options.WitPackage
+			}
+			witWorld := config.Target.WitWorld
+			if config.Options.WitWorld != "" {
+				witWorld = config.Options.WitWorld
+			}
+			if witPackage != "" && witWorld != "" {
 
 				// wasm-tools component embed -w wasi:cli/command
 				// 		$$(tinygo env TINYGOROOT)/lib/wasi-cli/wit/ main.wasm -o embedded.wasm
 				args := []string{
 					"component",
 					"embed",
-					"-w", config.Options.WitWorld,
-					config.Options.WitPackage,
+					"-w", witWorld,
+					witPackage,
 					result.Executable,
 					"-o", result.Executable,
 				}

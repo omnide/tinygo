@@ -435,7 +435,7 @@ tinygo-test-wasi-fast:
 tinygo-test-wasip1-fast:
 	GOOS=wasip1 GOARCH=wasm $(TINYGO) test $(TEST_PACKAGES_FAST) ./tests/runtime_wasi
 tinygo-test-wasip2-wip:
-	$(TINYGO) test -target wasip2 -wit-package $$(tinygo env TINYGOROOT)/lib/wasi-cli/wit/ -wit-world wasi:cli/command -x $(TEST_PACKAGES_FAST) ./tests/runtime_wasi
+	$(TINYGO) test -target wasip2 -x $(TEST_PACKAGES_FAST) ./tests/runtime_wasi
 tinygo-test-wasip2-dev:
 	$(TINYGO) test -target wasip2 -wit-package $$(tinygo env TINYGOROOT)/lib/wasi-cli/wit/ -wit-world wasi:cli/command -x -work encoding/csv
 tinygo-bench-wasi:
