@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/ydnar/wasm-tools-go/cm"
+	"github.com/ydnar/wasm-tools-go/wasi/cli/environment"
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stderr"
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stdin"
 	"github.com/ydnar/wasm-tools-go/wasi/cli/stdout"
@@ -87,13 +88,6 @@ func read(fd int32, buf *byte, count uint) int {
 	}
 	stream.offset += int64(n)
 	return int(n)
-}
-
-// char *getenv(const char *name);
-//
-//go:export getenv
-func getenv(name *byte) *byte {
-	return nil
 }
 
 // At the moment, each time we have a file read or write we create a new stream.  Future implementations
@@ -967,4 +961,56 @@ func p2fileTypeToLibcType(t types.DescriptorType) uint8 {
 	}
 
 	return DT_UNKNOWN
+}
+
+var libc_envs map[string]string
+
+func init() {
+	libc_envs = make(map[string]string)
+	for _, kv := range environment.GetEnvironment().Slice() {
+		libc_envs[kv[0]] = kv[1]
+	}
+}
+
+// char * getenv(const char *name);
+//
+//go:export getenv
+func getenv(key *byte) *byte {
+	k := goString(key)
+
+	v, ok := libc_envs[k]
+	if !ok {
+		return nil
+	}
+
+	// The new allocation is zero-filled; allocating an extra byte and then
+	// copying the data over will leave the last byte untouched,
+	// null-terminating the string.
+	vbytes := make([]byte, len(v)+1)
+	copy(vbytes, v)
+	return unsafe.SliceData(vbytes)
+}
+
+// int setenv(const char *name, const char *value, int overwrite);
+//
+//go:export setenv
+func setenv(key, value *byte, overwrite int) int {
+	k := goString(key)
+	if _, ok := libc_envs[k]; ok && overwrite == 0 {
+		return 0
+	}
+
+	v := goString(value)
+	libc_envs[k] = v
+
+	return 0
+}
+
+// int unsetenv(const char *name);
+//
+//go:export unsetenv
+func unsetenv(key *byte) int {
+	k := goString(key)
+	delete(libc_envs, k)
+	return 0
 }

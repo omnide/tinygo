@@ -2,14 +2,10 @@
 
 package syscall
 
-import (
-	"github.com/ydnar/wasm-tools-go/wasi/cli/environment"
-)
-
 func Environ() []string {
 	var env []string
-	for _, kv := range environment.GetEnvironment().Slice() {
-		env = append(env, kv[0]+"="+kv[1])
+	for k, v := range libc_envs {
+		env = append(env, k+"="+v)
 	}
 	return env
 }
