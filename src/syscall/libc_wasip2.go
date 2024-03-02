@@ -18,6 +18,7 @@ import (
 	"github.com/ydnar/wasm-tools-go/wasi/filesystem/types"
 	ioerror "github.com/ydnar/wasm-tools-go/wasi/io/error"
 	"github.com/ydnar/wasm-tools-go/wasi/io/streams"
+	"github.com/ydnar/wasm-tools-go/wasi/random/random"
 )
 
 func goString(cstr *byte) string {
@@ -1013,4 +1014,13 @@ func unsetenv(key *byte) int {
 	k := goString(key)
 	delete(libc_envs, k)
 	return 0
+}
+
+// void arc4random_buf (void *, size_t);
+//
+//go:export arc4random_buf
+func arc4random_buf(p unsafe.Pointer, l uint) {
+	result := random.GetRandomBytes(uint64(l))
+	s := result.Slice()
+	memcpy(unsafe.Pointer(p), unsafe.Pointer(unsafe.SliceData(s)), uintptr(l))
 }
