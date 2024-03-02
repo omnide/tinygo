@@ -10,7 +10,7 @@ PACKAGES="${PACKAGES:-"./tests"}"
 TARGET="${TARGET:-wasip2}"
 TESTOPTS="${TESTOPTS:-"-x -work"}"
 
-go clean -testcache
+# go clean -testcache
 for pkg in $PACKAGES; do
     # Example invocation with test2json in BigGo:
     # go test -test.v=test2json ./$pkg 2>&1 | go tool test2json -p $pkg
