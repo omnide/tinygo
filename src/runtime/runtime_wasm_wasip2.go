@@ -7,7 +7,6 @@ import (
 
 	"github.com/ydnar/wasm-tools-go/wasi/cli/environment"
 	monotonicclock "github.com/ydnar/wasm-tools-go/wasi/clocks/monotonic-clock"
-	wallclock "github.com/ydnar/wasm-tools-go/wasi/clocks/wall-clock"
 )
 
 type timeUnit int64
@@ -68,7 +67,5 @@ func sleepTicks(d timeUnit) {
 }
 
 func ticks() timeUnit {
-	now := wallclock.Now()
-	nano := now.Seconds*1e9 + uint64(now.Nanoseconds)
-	return timeUnit(nano)
+	return timeUnit(monotonicclock.Now())
 }
