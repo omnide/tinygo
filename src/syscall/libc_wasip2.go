@@ -400,13 +400,6 @@ func mprotect(addr unsafe.Pointer, len uintptr, prot int32) int32 {
 	return -1
 }
 
-// int chdir(const char *pathname, mode_t mode);
-//
-//go:export chdir
-func chdir(pathname *byte) int32 {
-	return 0
-}
-
 // int chmod(const char *pathname, mode_t mode);
 //
 //go:export chmod
@@ -693,9 +686,17 @@ func populatePreopens() {
 
 // FIXME(ydnar): opening a stripped path fails, so ignore it.
 func findPreopenForPath(path string) (types.Descriptor, string) {
+	if strings.HasPrefix(path, "./") || path == "." {
+		return wasiCWD, path
+	}
+
 	for k, v := range wasiPreopens {
 		if strings.HasPrefix(path, k) {
-			path = strings.TrimPrefix(path, k+"/")
+			if path == k {
+				path = "."
+			} else {
+				path = strings.TrimPrefix(path, k+"/")
+			}
 			return v, path
 		}
 	}
@@ -1023,4 +1024,37 @@ func arc4random_buf(p unsafe.Pointer, l uint) {
 	result := random.GetRandomBytes(uint64(l))
 	s := result.Slice()
 	memcpy(unsafe.Pointer(p), unsafe.Pointer(unsafe.SliceData(s)), uintptr(l))
+}
+
+var libc_cwd string
+
+// int chdir(char *name)
+//
+//go:export chdir
+func chdir(name *byte) int {
+	path := goString(name)
+	dir, rel := findPreopenForPath(path)
+
+	result := dir.OpenAt(types.PathFlagsSymlinkFollow, rel, types.OpenFlagsDirectory, types.DescriptorFlagsRead)
+	if err := result.Err(); err != nil {
+		libcErrno = errorCodeToErrno(*err)
+		return -1
+	}
+
+	libc_cwd = path
+	wasiCWD = *result.OK()
+	return 0
+}
+
+// char *getcwd(char *buf, size_t size)
+//
+//go:export getcwd
+func getcwd(buf *byte, size uint) *byte {
+	if size > uint(len(libc_cwd)) {
+		size = uint(len(libc_cwd))
+	}
+
+	// TODO(dgryski): null termination?
+	memcpy(unsafe.Pointer(buf), unsafe.Pointer(unsafe.SliceData([]byte(libc_cwd))), uintptr(size))
+	return buf
 }
