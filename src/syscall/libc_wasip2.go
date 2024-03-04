@@ -707,7 +707,7 @@ func findPreopenForPath(path string) (types.Descriptor, string) {
 //go:export open
 func open(pathname *byte, flags int32, mode uint32) int32 {
 	path := goString(pathname)
-	dir, _ := findPreopenForPath(path)
+	dir, relPath := findPreopenForPath(path)
 
 	var dflags types.DescriptorFlags
 	if (flags & O_RDONLY) == O_RDONLY {
@@ -738,7 +738,7 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 		pflags &^= types.PathFlagsSymlinkFollow
 	}
 
-	result := dir.OpenAt(pflags, path, oflags, dflags)
+	result := dir.OpenAt(pflags, relPath, oflags, dflags)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
