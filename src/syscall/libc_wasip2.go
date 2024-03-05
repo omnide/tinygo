@@ -619,8 +619,7 @@ func setStatFromWASIStat(sstat *Stat_t, wstat *types.DescriptorStat) {
 
 	sstat.Nlink = uint64(wstat.LinkCount)
 
-	// No mode bits
-	sstat.Mode = 0
+	sstat.Mode = p2fileTypeToStatType(wstat.Type)
 
 	// No uid/gid
 	sstat.Uid = 0
@@ -936,13 +935,13 @@ func readdir(dirp unsafe.Pointer) *Dirent {
 
 	// No inodes in wasi
 	dirent.Ino = 0
-	dirent.Type = p2fileTypeToLibcType(entry.Type)
+	dirent.Type = p2fileTypeToDirentType(entry.Type)
 	copy(buf[unsafe.Offsetof(dirent.Type)+1:], entry.Name)
 
 	return dirent
 }
 
-func p2fileTypeToLibcType(t types.DescriptorType) uint8 {
+func p2fileTypeToDirentType(t types.DescriptorType) uint8 {
 	switch t {
 	case types.DescriptorTypeUnknown:
 		return DT_UNKNOWN
@@ -963,6 +962,29 @@ func p2fileTypeToLibcType(t types.DescriptorType) uint8 {
 	}
 
 	return DT_UNKNOWN
+}
+
+func p2fileTypeToStatType(t types.DescriptorType) uint32 {
+	switch t {
+	case types.DescriptorTypeUnknown:
+		return 0
+	case types.DescriptorTypeBlockDevice:
+		return S_IFBLK
+	case types.DescriptorTypeCharacterDevice:
+		return S_IFCHR
+	case types.DescriptorTypeDirectory:
+		return S_IFDIR
+	case types.DescriptorTypeFIFO:
+		return S_IFIFO
+	case types.DescriptorTypeSymbolicLink:
+		return S_IFLNK
+	case types.DescriptorTypeRegularFile:
+		return S_IFREG
+	case types.DescriptorTypeSocket:
+		return S_IFSOCK
+	}
+
+	return 0
 }
 
 var libc_envs map[string]string
