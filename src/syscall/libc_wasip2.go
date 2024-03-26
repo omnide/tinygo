@@ -5,7 +5,6 @@
 package syscall
 
 import (
-	"strings"
 	"unsafe"
 
 	"github.com/ydnar/wasm-tools-go/cm"
@@ -411,10 +410,11 @@ func chmod(pathname *byte, mode uint32) int32 {
 //
 //go:export mkdir
 func mkdir(pathname *byte, mode uint32) int32 {
+
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
 
-	result := dir.CreateDirectoryAt(relPath)
+	result := dir.d.CreateDirectoryAt(relPath)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
@@ -430,7 +430,7 @@ func rmdir(pathname *byte) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
 
-	result := dir.RemoveDirectoryAt(relPath)
+	result := dir.d.RemoveDirectoryAt(relPath)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
@@ -449,7 +449,7 @@ func rename(from, to *byte) int32 {
 	toPath := goString(to)
 	toDir, toRelPath := findPreopenForPath(toPath)
 
-	result := fromDir.RenameAt(fromRelPath, toDir, toRelPath)
+	result := fromDir.d.RenameAt(fromRelPath, toDir.d, toRelPath)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
@@ -468,14 +468,14 @@ func symlink(from, to *byte) int32 {
 	toPath := goString(to)
 	toDir, toRelPath := findPreopenForPath(toPath)
 
-	if fromDir != toDir {
+	if fromDir.d != toDir.d {
 		libcErrno = EACCES
 		return -1
 	}
 
 	// TODO(dgryski): check fromDir == toDir?
 
-	result := fromDir.SymlinkAt(fromRelPath, toRelPath)
+	result := fromDir.d.SymlinkAt(fromRelPath, toRelPath)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
@@ -524,7 +524,7 @@ func readlink(pathname *byte, buf *byte, count uint) int {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
 
-	result := dir.ReadLinkAt(relPath)
+	result := dir.d.ReadLinkAt(relPath)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
@@ -547,7 +547,7 @@ func unlink(pathname *byte) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
 
-	result := dir.UnlinkFileAt(relPath)
+	result := dir.d.UnlinkFileAt(relPath)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
@@ -560,8 +560,7 @@ func unlink(pathname *byte) int32 {
 //
 //go:export getpagesize
 func getpagesize() int {
-	return 0
-
+	return 65536
 }
 
 // int stat(const char *path, struct stat * buf);
@@ -571,7 +570,7 @@ func stat(pathname *byte, dst *Stat_t) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
 
-	result := dir.StatAt(0, relPath)
+	result := dir.d.StatAt(0, relPath)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
@@ -651,7 +650,7 @@ func lstat(pathname *byte, dst *Stat_t) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
 
-	result := dir.StatAt(0, relPath)
+	result := dir.d.StatAt(0, relPath)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
@@ -663,43 +662,183 @@ func lstat(pathname *byte, dst *Stat_t) int32 {
 }
 
 func init() {
+	populateEnvironment()
 	populatePreopens()
 }
 
-var wasiCWD types.Descriptor
+type wasiDir struct {
+	d    types.Descriptor // wasip2 descriptor
+	root string           // root path for this descriptor
+	rel  string           // relative path under root
+}
+
+var libcCWD wasiDir
 
 var wasiPreopens map[string]types.Descriptor
 
 func populatePreopens() {
+
+	var cwd string
+
+	// find CWD
+	result := environment.InitialCWD()
+	if s := result.Some(); s != nil {
+		cwd = *s
+	} else if s, _ := Getenv("PWD"); s != "" {
+		cwd = s
+	}
+
 	dirs := preopens.GetDirectories().Slice()
 	preopens := make(map[string]types.Descriptor, len(dirs))
 	for _, tup := range dirs {
 		desc, path := tup.F0, tup.F1
-		preopens[path] = desc
-		if path == "." {
-			wasiCWD = desc
+		if path == cwd {
+			libcCWD.d = desc
+			libcCWD.root = path
+			libcCWD.rel = ""
 		}
+		preopens[path+"/"] = desc
 	}
 	wasiPreopens = preopens
 }
 
-// FIXME(ydnar): opening a stripped path fails, so ignore it.
-func findPreopenForPath(path string) (types.Descriptor, string) {
-	if strings.HasPrefix(path, "./") || path == "." {
-		return wasiCWD, path
+// From fs_wasip1.go
+
+//go:nosplit
+func appendCleanPath(buf []byte, path string, lookupParent bool) ([]byte, bool) {
+	i := 0
+	for i < len(path) {
+		for i < len(path) && path[i] == '/' {
+			i++
+		}
+
+		j := i
+		for j < len(path) && path[j] != '/' {
+			j++
+		}
+
+		s := path[i:j]
+		i = j
+
+		switch s {
+		case "":
+			continue
+		case ".":
+			continue
+		case "..":
+			if !lookupParent {
+				k := len(buf)
+				for k > 0 && buf[k-1] != '/' {
+					k--
+				}
+				for k > 1 && buf[k-1] == '/' {
+					k--
+				}
+				buf = buf[:k]
+				if k == 0 {
+					lookupParent = true
+				} else {
+					s = ""
+					continue
+				}
+			}
+		default:
+			lookupParent = false
+		}
+
+		if len(buf) > 0 && buf[len(buf)-1] != '/' {
+			buf = append(buf, '/')
+		}
+		buf = append(buf, s...)
+	}
+	return buf, lookupParent
+}
+
+// joinPath concatenates dir and file paths, producing a cleaned path where
+// "." and ".." have been removed, unless dir is relative and the references
+// to parent directories in file represented a location relative to a parent
+// of dir.
+//
+// This function is used for path resolution of all wasi functions expecting
+// a path argument; the returned string is heap allocated, which we may want
+// to optimize in the future. Instead of returning a string, the function
+// could append the result to an output buffer that the functions in this
+// file can manage to have allocated on the stack (e.g. initializing to a
+// fixed capacity). Since it will significantly increase code complexity,
+// we prefer to optimize for readability and maintainability at this time.
+func joinPath(dir, file string) string {
+	buf := make([]byte, 0, len(dir)+len(file)+1)
+	if isAbs(dir) {
+		buf = append(buf, '/')
 	}
 
-	for k, v := range wasiPreopens {
-		if strings.HasPrefix(path, k) {
-			if path == k {
-				path = "."
-			} else {
-				path = strings.TrimPrefix(path, k+"/")
-			}
-			return v, path
+	buf, lookupParent := appendCleanPath(buf, dir, true)
+	buf, _ = appendCleanPath(buf, file, lookupParent)
+	// The appendCleanPath function cleans the path so it does not inject
+	// references to the current directory. If both the dir and file args
+	// were ".", this results in the output buffer being empty so we handle
+	// this condition here.
+	if len(buf) == 0 {
+		buf = append(buf, '.')
+	}
+	// If the file ended with a '/' we make sure that the output also ends
+	// with a '/'. This is needed to ensure that programs have a mechanism
+	// to represent dereferencing symbolic links pointing to directories.
+	if buf[len(buf)-1] != '/' && isDir(file) {
+		buf = append(buf, '/')
+	}
+	return unsafe.String(&buf[0], len(buf))
+}
+
+func isAbs(path string) bool {
+	return hasPrefix(path, "/")
+}
+
+func isDir(path string) bool {
+	return hasSuffix(path, "/")
+}
+
+func hasPrefix(s, p string) bool {
+	return len(s) >= len(p) && s[:len(p)] == p
+}
+
+func hasSuffix(s, x string) bool {
+	return len(s) >= len(x) && s[len(s)-len(x):] == x
+}
+
+// findPreopenForPath finds which preopen it relates to and return that descriptor/root and the path relative to that directory descriptor/root
+func findPreopenForPath(path string) (wasiDir, string) {
+	dir := "/"
+	var wasidir wasiDir
+
+	if !isAbs(path) {
+		dir = libcCWD.root
+		wasidir = libcCWD
+		if libcCWD.rel != "" && libcCWD.rel != "." && libcCWD.rel != "./" {
+			path = libcCWD.rel + "/" + path
 		}
 	}
-	return wasiCWD, path
+	path = joinPath(dir, path)
+
+	var best string
+	for k, v := range wasiPreopens {
+		if len(k) > len(best) && hasPrefix(path, k) {
+			wasidir = wasiDir{d: v, root: k}
+			best = wasidir.root
+		}
+	}
+
+	if hasPrefix(path, wasidir.root) {
+		path = path[len(wasidir.root):]
+	}
+	for isAbs(path) {
+		path = path[1:]
+	}
+	if len(path) == 0 {
+		path = "."
+	}
+
+	return wasidir, path
 }
 
 // int open(const char *pathname, int flags, mode_t mode);
@@ -738,7 +877,7 @@ func open(pathname *byte, flags int32, mode uint32) int32 {
 		pflags &^= types.PathFlagsSymlinkFollow
 	}
 
-	result := dir.OpenAt(pflags, relPath, oflags, dflags)
+	result := dir.d.OpenAt(pflags, relPath, oflags, dflags)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
@@ -989,7 +1128,7 @@ func p2fileTypeToStatType(t types.DescriptorType) uint32 {
 
 var libc_envs map[string]string
 
-func init() {
+func populateEnvironment() {
 	libc_envs = make(map[string]string)
 	for _, kv := range environment.GetEnvironment().Slice() {
 		libc_envs[kv[0]] = kv[1]
@@ -1048,23 +1187,32 @@ func arc4random_buf(p unsafe.Pointer, l uint) {
 	memcpy(unsafe.Pointer(p), unsafe.Pointer(unsafe.SliceData(s)), uintptr(l))
 }
 
-var libc_cwd string
-
 // int chdir(char *name)
 //
 //go:export chdir
 func chdir(name *byte) int {
-	path := goString(name)
+	path := goString(name) + "/"
+
+	if !isAbs(path) {
+		path = joinPath(libcCWD.root+"/"+libcCWD.rel+"/", path)
+	}
+
+	if path == "." {
+		return 0
+	}
+
 	dir, rel := findPreopenForPath(path)
 
-	result := dir.OpenAt(types.PathFlagsSymlinkFollow, rel, types.OpenFlagsDirectory, types.DescriptorFlagsRead)
+	result := dir.d.OpenAt(types.PathFlagsSymlinkFollow, rel, types.OpenFlagsDirectory, types.DescriptorFlagsRead)
 	if err := result.Err(); err != nil {
 		libcErrno = errorCodeToErrno(*err)
 		return -1
 	}
 
-	libc_cwd = path
-	wasiCWD = *result.OK()
+	libcCWD = dir
+	// keep the same cwd base but update "rel" to point to new base path
+	libcCWD.rel = rel
+
 	return 0
 }
 
@@ -1072,11 +1220,26 @@ func chdir(name *byte) int {
 //
 //go:export getcwd
 func getcwd(buf *byte, size uint) *byte {
-	if size > uint(len(libc_cwd)) {
-		size = uint(len(libc_cwd))
+
+	cwd := libcCWD.root
+	if libcCWD.rel != "" && libcCWD.rel != "." && libcCWD.rel != "./" {
+		cwd += libcCWD.rel
+	}
+
+	if buf == nil {
+		b := make([]byte, len(cwd)+1)
+		buf = unsafe.SliceData(b)
+	} else if size == 0 {
+		libcErrno = EINVAL
+		return nil
+	}
+
+	if size < uint(len(cwd)+1) {
+		libcErrno = ERANGE
+		return nil
 	}
 
 	// TODO(dgryski): null termination?
-	memcpy(unsafe.Pointer(buf), unsafe.Pointer(unsafe.SliceData([]byte(libc_cwd))), uintptr(size))
+	copy(unsafe.Slice(buf, size), cwd)
 	return buf
 }
