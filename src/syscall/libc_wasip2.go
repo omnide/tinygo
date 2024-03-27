@@ -413,6 +413,10 @@ func mkdir(pathname *byte, mode uint32) int32 {
 
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
+	if dir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	result := dir.d.CreateDirectoryAt(relPath)
 	if err := result.Err(); err != nil {
@@ -429,6 +433,10 @@ func mkdir(pathname *byte, mode uint32) int32 {
 func rmdir(pathname *byte) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
+	if dir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	result := dir.d.RemoveDirectoryAt(relPath)
 	if err := result.Err(); err != nil {
@@ -445,9 +453,17 @@ func rmdir(pathname *byte) int32 {
 func rename(from, to *byte) int32 {
 	fromPath := goString(from)
 	fromDir, fromRelPath := findPreopenForPath(fromPath)
+	if fromDir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	toPath := goString(to)
 	toDir, toRelPath := findPreopenForPath(toPath)
+	if toDir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	result := fromDir.d.RenameAt(fromRelPath, toDir.d, toRelPath)
 	if err := result.Err(); err != nil {
@@ -464,9 +480,17 @@ func rename(from, to *byte) int32 {
 func symlink(from, to *byte) int32 {
 	fromPath := goString(from)
 	fromDir, fromRelPath := findPreopenForPath(fromPath)
+	if fromDir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	toPath := goString(to)
 	toDir, toRelPath := findPreopenForPath(toPath)
+	if toDir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	if fromDir.d != toDir.d {
 		libcErrno = EACCES
@@ -523,6 +547,10 @@ func fsync(fd int32) int32 {
 func readlink(pathname *byte, buf *byte, count uint) int {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
+	if dir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	result := dir.d.ReadLinkAt(relPath)
 	if err := result.Err(); err != nil {
@@ -546,6 +574,10 @@ func readlink(pathname *byte, buf *byte, count uint) int {
 func unlink(pathname *byte) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
+	if dir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	result := dir.d.UnlinkFileAt(relPath)
 	if err := result.Err(); err != nil {
@@ -569,6 +601,10 @@ func getpagesize() int {
 func stat(pathname *byte, dst *Stat_t) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
+	if dir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	result := dir.d.StatAt(0, relPath)
 	if err := result.Err(); err != nil {
@@ -649,6 +685,10 @@ func setStatFromWASIStat(sstat *Stat_t, wstat *types.DescriptorStat) {
 func lstat(pathname *byte, dst *Stat_t) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
+	if dir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	result := dir.d.StatAt(0, relPath)
 	if err := result.Err(); err != nil {
@@ -847,6 +887,10 @@ func findPreopenForPath(path string) (wasiDir, string) {
 func open(pathname *byte, flags int32, mode uint32) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
+	if dir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	var dflags types.DescriptorFlags
 	if (flags & O_RDONLY) == O_RDONLY {
@@ -1202,6 +1246,10 @@ func chdir(name *byte) int {
 	}
 
 	dir, rel := findPreopenForPath(path)
+	if dir.d == cm.ResourceNone {
+		libcErrno = EACCES
+		return -1
+	}
 
 	result := dir.d.OpenAt(types.PathFlagsSymlinkFollow, rel, types.OpenFlagsDirectory, types.DescriptorFlagsRead)
 	if err := result.Err(); err != nil {
