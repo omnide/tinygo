@@ -1349,7 +1349,8 @@ func getcwd(buf *byte, size uint) *byte {
 		return nil
 	}
 
-	// TODO(dgryski): null termination?
-	copy(unsafe.Slice(buf, size), cwd)
+	s := unsafe.Slice(buf, size)
+	s[size-1] = 0 // Enforce NULL termination
+	copy(s, cwd)
 	return buf
 }
