@@ -375,7 +375,9 @@ func (c *compilerContext) checkWasmImport(f *ssa.Function, pragma string) {
 
 // Check whether the type maps directly to a WebAssembly type, according to:
 // https://github.com/golang/go/issues/59149
-// TODO(ydnar): document why we relaxed this for WASI Preview 2.
+//
+// Update: this reflects the relaxed type restrictions proposed here:
+// https://github.com/golang/go/issues/66984
 func isValidWasmType(typ types.Type, isReturn bool) bool {
 	switch typ := typ.Underlying().(type) {
 	case *types.Basic:
