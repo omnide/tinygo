@@ -25,7 +25,7 @@ func goString(cstr *byte) string {
 	return unsafe.String(cstr, strlen(cstr))
 }
 
-//go:export strlen
+//export strlen
 func strlen(cstr *byte) uintptr {
 	if cstr == nil {
 		return 0
@@ -40,7 +40,7 @@ func strlen(cstr *byte) uintptr {
 
 // ssize_t write(int fd, const void *buf, size_t count)
 //
-//go:export write
+//export write
 func write(fd int32, buf *byte, count uint) int {
 	if stream, ok := wasiStreams[fd]; ok {
 		return writeStream(stream, buf, count, 0)
@@ -66,7 +66,7 @@ func write(fd int32, buf *byte, count uint) int {
 
 // ssize_t read(int fd, void *buf, size_t count);
 //
-//go:export read
+//export read
 func read(fd int32, buf *byte, count uint) int {
 	if stream, ok := wasiStreams[fd]; ok {
 		return readStream(stream, buf, count, 0)
@@ -224,7 +224,7 @@ func memcpy(dst, src unsafe.Pointer, size uintptr)
 
 // ssize_t pread(int fd, void *buf, size_t count, off_t offset);
 //
-//go:export pread
+//export pread
 func pread(fd int32, buf *byte, count uint, offset int64) int {
 	// TODO(dgryski): Need to be consistent about all these checks; EBADF/EINVAL/... ?
 
@@ -263,7 +263,7 @@ func pread(fd int32, buf *byte, count uint, offset int64) int {
 
 // ssize_t pwrite(int fd, void *buf, size_t count, off_t offset);
 //
-//go:export pwrite
+//export pwrite
 func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 	// TODO(dgryski): Need to be consistent about all these checks; EBADF/EINVAL/... ?
 	if stream, ok := wasiStreams[fd]; ok {
@@ -297,7 +297,7 @@ func pwrite(fd int32, buf *byte, count uint, offset int64) int {
 
 // ssize_t lseek(int fd, off_t offset, int whence);
 //
-//go:export lseek
+//export lseek
 func lseek(fd int32, offset int64, whence int) int64 {
 	if _, ok := wasiStreams[fd]; ok {
 		// can't lseek a stream
@@ -334,7 +334,7 @@ func lseek(fd int32, offset int64, whence int) int64 {
 
 // int close(int fd)
 //
-//go:export close
+//export close
 func close(fd int32) int32 {
 	if streams, ok := wasiStreams[fd]; ok {
 		if streams.out != nil {
@@ -373,7 +373,7 @@ func close(fd int32) int32 {
 
 // int dup(int fd)
 //
-//go:export dup
+//export dup
 func dup(fd int32) int32 {
 	// is fd a stream?
 	if stream, ok := wasiStreams[fd]; ok {
@@ -399,7 +399,7 @@ func dup(fd int32) int32 {
 
 // void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 //
-//go:export mmap
+//export mmap
 func mmap(addr unsafe.Pointer, length uintptr, prot, flags, fd int32, offset uintptr) unsafe.Pointer {
 	libcErrno = ENOSYS
 	return unsafe.Pointer(^uintptr(0))
@@ -407,7 +407,7 @@ func mmap(addr unsafe.Pointer, length uintptr, prot, flags, fd int32, offset uin
 
 // int munmap(void *addr, size_t length);
 //
-//go:export munmap
+//export munmap
 func munmap(addr unsafe.Pointer, length uintptr) int32 {
 	libcErrno = ENOSYS
 	return -1
@@ -415,7 +415,7 @@ func munmap(addr unsafe.Pointer, length uintptr) int32 {
 
 // int mprotect(void *addr, size_t len, int prot);
 //
-//go:export mprotect
+//export mprotect
 func mprotect(addr unsafe.Pointer, len uintptr, prot int32) int32 {
 	libcErrno = ENOSYS
 	return -1
@@ -423,14 +423,14 @@ func mprotect(addr unsafe.Pointer, len uintptr, prot int32) int32 {
 
 // int chmod(const char *pathname, mode_t mode);
 //
-//go:export chmod
+//export chmod
 func chmod(pathname *byte, mode uint32) int32 {
 	return 0
 }
 
 // int mkdir(const char *pathname, mode_t mode);
 //
-//go:export mkdir
+//export mkdir
 func mkdir(pathname *byte, mode uint32) int32 {
 
 	path := goString(pathname)
@@ -451,7 +451,7 @@ func mkdir(pathname *byte, mode uint32) int32 {
 
 // int rmdir(const char *pathname);
 //
-//go:export rmdir
+//export rmdir
 func rmdir(pathname *byte) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
@@ -471,7 +471,7 @@ func rmdir(pathname *byte) int32 {
 
 // int rename(const char *from, *to);
 //
-//go:export rename
+//export rename
 func rename(from, to *byte) int32 {
 	fromPath := goString(from)
 	fromDir, fromRelPath := findPreopenForPath(fromPath)
@@ -498,7 +498,7 @@ func rename(from, to *byte) int32 {
 
 // int symlink(const char *from, *to);
 //
-//go:export symlink
+//export symlink
 func symlink(from, to *byte) int32 {
 	fromPath := goString(from)
 	fromDir, fromRelPath := findPreopenForPath(fromPath)
@@ -532,7 +532,7 @@ func symlink(from, to *byte) int32 {
 
 // int link(const char *from, *to);
 //
-//go:export link
+//export link
 func link(from, to *byte) int32 {
 	fromPath := goString(from)
 	fromDir, fromRelPath := findPreopenForPath(fromPath)
@@ -566,7 +566,7 @@ func link(from, to *byte) int32 {
 
 // int fsync(int fd);
 //
-//go:export fsync
+//export fsync
 func fsync(fd int32) int32 {
 	if _, ok := wasiStreams[fd]; ok {
 		// can't sync a stream
@@ -599,7 +599,7 @@ func fsync(fd int32) int32 {
 
 // ssize_t readlink(const char *path, void *buf, size_t count);
 //
-//go:export readlink
+//export readlink
 func readlink(pathname *byte, buf *byte, count uint) int {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
@@ -626,7 +626,7 @@ func readlink(pathname *byte, buf *byte, count uint) int {
 
 // int unlink(const char *pathname);
 //
-//go:export unlink
+//export unlink
 func unlink(pathname *byte) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
@@ -646,14 +646,14 @@ func unlink(pathname *byte) int32 {
 
 // int getpagesize(void);
 //
-//go:export getpagesize
+//export getpagesize
 func getpagesize() int {
 	return 65536
 }
 
 // int stat(const char *path, struct stat * buf);
 //
-//go:export stat
+//export stat
 func stat(pathname *byte, dst *Stat_t) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
@@ -675,7 +675,7 @@ func stat(pathname *byte, dst *Stat_t) int32 {
 
 // int fstat(int fd, struct stat * buf);
 //
-//go:export fstat
+//export fstat
 func fstat(fd int32, dst *Stat_t) int32 {
 	if _, ok := wasiStreams[fd]; ok {
 		// TODO(dgryski): fill in stat buffer for stdin etc
@@ -737,7 +737,7 @@ func setStatFromWASIStat(sstat *Stat_t, wstat *types.DescriptorStat) {
 
 // int lstat(const char *path, struct stat * buf);
 //
-//go:export lstat
+//export lstat
 func lstat(pathname *byte, dst *Stat_t) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
@@ -945,7 +945,7 @@ func findPreopenForPath(path string) (wasiDir, string) {
 
 // int open(const char *pathname, int flags, mode_t mode);
 //
-//go:export open
+//export open
 func open(pathname *byte, flags int32, mode uint32) int32 {
 	path := goString(pathname)
 	dir, relPath := findPreopenForPath(path)
@@ -1097,7 +1097,7 @@ type libc_DIR struct {
 
 // DIR *fdopendir(int);
 //
-//go:export fdopendir
+//export fdopendir
 func fdopendir(fd int32) unsafe.Pointer {
 	if _, ok := wasiStreams[fd]; ok {
 		libcErrno = EBADF
@@ -1125,7 +1125,7 @@ func fdopendir(fd int32) unsafe.Pointer {
 
 // int fdclosedir(DIR *);
 //
-//go:export fdclosedir
+//export fdclosedir
 func fdclosedir(dirp unsafe.Pointer) int32 {
 	if dirp == nil {
 		return 0
@@ -1144,7 +1144,7 @@ func fdclosedir(dirp unsafe.Pointer) int32 {
 
 // struct dirent *readdir(DIR *);
 //
-//go:export readdir
+//export readdir
 func readdir(dirp unsafe.Pointer) *Dirent {
 	if dirp == nil {
 		return nil
@@ -1243,7 +1243,7 @@ func populateEnvironment() {
 
 // char * getenv(const char *name);
 //
-//go:export getenv
+//export getenv
 func getenv(key *byte) *byte {
 	k := goString(key)
 
@@ -1262,7 +1262,7 @@ func getenv(key *byte) *byte {
 
 // int setenv(const char *name, const char *value, int overwrite);
 //
-//go:export setenv
+//export setenv
 func setenv(key, value *byte, overwrite int) int {
 	k := goString(key)
 	if _, ok := libc_envs[k]; ok && overwrite == 0 {
@@ -1277,7 +1277,7 @@ func setenv(key, value *byte, overwrite int) int {
 
 // int unsetenv(const char *name);
 //
-//go:export unsetenv
+//export unsetenv
 func unsetenv(key *byte) int {
 	k := goString(key)
 	delete(libc_envs, k)
@@ -1286,7 +1286,7 @@ func unsetenv(key *byte) int {
 
 // void arc4random_buf (void *, size_t);
 //
-//go:export arc4random_buf
+//export arc4random_buf
 func arc4random_buf(p unsafe.Pointer, l uint) {
 	result := random.GetRandomBytes(uint64(l))
 	s := result.Slice()
@@ -1295,7 +1295,7 @@ func arc4random_buf(p unsafe.Pointer, l uint) {
 
 // int chdir(char *name)
 //
-//go:export chdir
+//export chdir
 func chdir(name *byte) int {
 	path := goString(name) + "/"
 
@@ -1328,7 +1328,7 @@ func chdir(name *byte) int {
 
 // char *getcwd(char *buf, size_t size)
 //
-//go:export getcwd
+//export getcwd
 func getcwd(buf *byte, size uint) *byte {
 
 	cwd := libcCWD.root
