@@ -443,10 +443,6 @@ tinygo-test-wasip2-slow:
 tinygo-test-wasip2-fast:
 	$(TINYGO) test -target=wasip2 $(TEST_PACKAGES_FAST) ./tests/runtime_wasi
 
-tinygo-test-wasip2-wip:
-	$(TINYGO) test -target wasip2 -x -v $(TEST_PACKAGES_FAST) ./tests/runtime_wasi
-tinygo-test-wasip2-dev:
-	$(TINYGO) test -target wasip2 -wit-package $$(tinygo env TINYGOROOT)/lib/wasi-cli/wit/ -wit-world wasi:cli/command -x -work encoding/csv
 tinygo-test-wasip2-sum-slow:
 	TINYGO=$(TINYGO) \
 	TARGET=wasip2 \
