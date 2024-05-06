@@ -120,6 +120,7 @@ const (
 )
 
 func getErrno() error {
+	// libcErrno is the errno from wasi-libc for wasip1 and the errno for libc_wasip2 for wasip2
 	return libcErrno
 }
 
