@@ -1507,7 +1507,7 @@ func main() {
 	}
 
 	var witPackage, witWorld string
-	if command == "help" || command == "build" || command == "test" {
+	if command == "help" || command == "build" || command == "test" || command == "run" {
 		flag.StringVar(&witPackage, "wit-package", "", "wit package for wasm component embedding")
 		flag.StringVar(&witWorld, "wit-world", "", "wit world for wasm component embedding")
 	}
