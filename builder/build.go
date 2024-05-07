@@ -878,15 +878,6 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 
 				err := cmd.Run()
 				if err != nil {
-					// Preserve a copy of the failure if -work option is used
-					if config.Options.Work {
-						dest := filepath.Join(
-							filepath.Dir(result.Executable),
-							fmt.Sprintf("%s.embed-fail.wasm", strings.Replace(pkgName, "/", "_", -1)),
-						)
-						copyCmd := exec.Command("cp", "-f", result.Executable, dest)
-						copyCmd.Run()
-					}
 					return fmt.Errorf("wasm-tools failed: %w", err)
 				}
 
@@ -907,15 +898,6 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 
 				err = cmd.Run()
 				if err != nil {
-					// Preserve a copy of the failure if -work option is used
-					if config.Options.Work {
-						dest := filepath.Join(
-							filepath.Dir(result.Executable),
-							fmt.Sprintf("%s.comp-fail.wasm", strings.Replace(pkgName, "/", "_", -1)),
-						)
-						copyCmd := exec.Command("cp", "-f", result.Executable, dest)
-						copyCmd.Run()
-					}
 					return fmt.Errorf("wasm-tools failed: %w", err)
 				}
 			}
