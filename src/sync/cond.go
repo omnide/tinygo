@@ -89,3 +89,6 @@ func (c *Cond) Wait() {
 	// signal.
 	task.Pause()
 }
+
+//go:linkname scheduleTask runtime.scheduleTask
+func scheduleTask(*task.Task)
