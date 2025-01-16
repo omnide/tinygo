@@ -24,7 +24,7 @@ func InitADC() {
 	enableAltFuncClock(unsafe.Pointer(stm32.ADC1))
 
 	// enable
-	stm32.ADC1.CR2.SetBits(stm32.ADC_CR2_ADON)
+	stm32.ADC1.CR2.SetBits(stm32.ADC_CR2_ADON | stm32.ADC_CR2_ALIGN)
 
 	return
 }
@@ -49,7 +49,7 @@ func (a ADC) Configure(ADCConfig) {
 func (a ADC) Get() uint16 {
 	// set rank
 	ch := uint32(a.getChannel())
-	stm32.ADC1.SQR3.SetBits(ch)
+	stm32.ADC1.SetSQR3_SQ1(ch)
 
 	// start conversion
 	stm32.ADC1.CR2.SetBits(stm32.ADC_CR2_ADON)
@@ -59,9 +59,7 @@ func (a ADC) Get() uint16 {
 	}
 
 	// read result as 16 bit value
-	result := uint16(stm32.ADC1.DR.Get()) << 4
-
-	return result
+	return uint16(stm32.ADC1.DR.Get())
 }
 
 func (a ADC) getChannel() uint8 {
