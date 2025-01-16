@@ -221,14 +221,19 @@ func (p Pin) enableClock() {
 
 // Enable peripheral clock. Expand to include all the desired peripherals
 func enableAltFuncClock(bus unsafe.Pointer) {
-	if bus == unsafe.Pointer(stm32.USART1) {
+	switch bus {
+	case unsafe.Pointer(stm32.USART1):
 		stm32.RCC.APB2ENR.SetBits(stm32.RCC_APB2ENR_USART1EN)
-	} else if bus == unsafe.Pointer(stm32.USART2) {
+	case unsafe.Pointer(stm32.USART2):
 		stm32.RCC.APB1ENR.SetBits(stm32.RCC_APB1ENR_USART2EN)
-	} else if bus == unsafe.Pointer(stm32.I2C1) {
+	case unsafe.Pointer(stm32.I2C1):
 		stm32.RCC.APB1ENR.SetBits(stm32.RCC_APB1ENR_I2C1EN)
-	} else if bus == unsafe.Pointer(stm32.SPI1) {
+	case unsafe.Pointer(stm32.SPI1):
 		stm32.RCC.APB2ENR.SetBits(stm32.RCC_APB2ENR_SPI1EN)
+	case unsafe.Pointer(stm32.ADC1):
+		stm32.RCC.APB2ENR.SetBits(stm32.RCC_APB2ENR_ADC1EN)
+	default:
+		panic("machine: unknown peripheral")
 	}
 }
 
