@@ -14,20 +14,17 @@ func CPUFrequency() uint32 {
 
 // InitADC initializes the registers needed for ADC.
 func InitADC() {
-	return // no specific setup on nrf52 machine.
+	// Enable ADC.
+	// The ADC does not consume a noticeable amount of current by being enabled.
+	nrf.SAADC.ENABLE.Set(nrf.SAADC_ENABLE_ENABLE_Enabled << nrf.SAADC_ENABLE_ENABLE_Pos)
 }
 
 // Configure configures an ADC pin to be able to read analog data.
-func (a ADC) Configure(config ADCConfig) {
-	// Enable ADC.
-	// The ADC does not consume a noticeable amount of current simply by being
-	// enabled.
-	nrf.SAADC.ENABLE.Set(nrf.SAADC_ENABLE_ENABLE_Enabled << nrf.SAADC_ENABLE_ENABLE_Pos)
-
-	// Use fixed resolution of 12 bits.
-	// TODO: is it useful for users to change this?
-	nrf.SAADC.RESOLUTION.Set(nrf.SAADC_RESOLUTION_VAL_12bit)
-
+// Reference voltage can be 150, 300, 600, 1200, 1800, 2400, 3000(default), 3600 mV
+// Resolution can be 8, 10, 12(default), 14 bits
+// SampleTime will be ceiled to 3(default), 5, 10, 15, 20 or 40(max) µS respectively
+// Samples can be 1(default), 2, 4, 8, 16, 32, 64, 128, 256 samples
+func (a *ADC) Configure(config ADCConfig) {
 	var configVal uint32 = nrf.SAADC_CH_CONFIG_RESP_Bypass<<nrf.SAADC_CH_CONFIG_RESP_Pos |
 		nrf.SAADC_CH_CONFIG_RESP_Bypass<<nrf.SAADC_CH_CONFIG_RESN_Pos |
 		nrf.SAADC_CH_CONFIG_REFSEL_Internal<<nrf.SAADC_CH_CONFIG_REFSEL_Pos |
@@ -51,11 +48,26 @@ func (a ADC) Configure(config ADCConfig) {
 	case 3600: // 3.6V
 		configVal |= nrf.SAADC_CH_CONFIG_GAIN_Gain1_6 << nrf.SAADC_CH_CONFIG_GAIN_Pos
 	default:
-		// TODO: return an error
+		// TODO: return an error, will that interfere with any interfaced if one will be?
 	}
 
-	// Source resistance, according to table 89 on page 364 of the nrf52832 datasheet.
-	// https://infocenter.nordicsemi.com/pdf/nRF52832_PS_v1.4.pdf
+	var resolution uint32
+	switch config.Resolution {
+	case 8:
+		resolution = nrf.SAADC_RESOLUTION_VAL_8bit
+	case 10:
+		resolution = nrf.SAADC_RESOLUTION_VAL_10bit
+	case 12:
+		resolution = nrf.SAADC_RESOLUTION_VAL_12bit
+	case 14:
+		resolution = nrf.SAADC_RESOLUTION_VAL_14bit
+	default:
+		resolution = nrf.SAADC_RESOLUTION_VAL_12bit
+	}
+	nrf.SAADC.RESOLUTION.Set(resolution)
+
+	// Source resistance, according to table 41 on page 676 of the nrf52832 datasheet.
+	// https://docs-be.nordicsemi.com/bundle/ps_nrf52840/attach/nRF52840_PS_v1.11.pdf?_LANG=enus
 	if config.SampleTime <= 3 { // <= 10kΩ
 		configVal |= nrf.SAADC_CH_CONFIG_TACQ_3us << nrf.SAADC_CH_CONFIG_TACQ_Pos
 	} else if config.SampleTime <= 5 { // <= 40kΩ
@@ -102,36 +114,28 @@ func (a ADC) Configure(config ADCConfig) {
 	nrf.SAADC.CH[0].CONFIG.Set(configVal)
 }
 
-// Get returns the current value of a ADC pin in the range 0..0xffff.
-func (a ADC) Get() uint16 {
+// Get returns the current value of an ADC pin in the range 0..0xffff.
+func (a *ADC) Get() uint16 {
 	var pwmPin uint32
 	var rawValue volatile.Register16
 
 	switch a.Pin {
 	case 2:
 		pwmPin = nrf.SAADC_CH_PSELP_PSELP_AnalogInput0
-
 	case 3:
 		pwmPin = nrf.SAADC_CH_PSELP_PSELP_AnalogInput1
-
 	case 4:
 		pwmPin = nrf.SAADC_CH_PSELP_PSELP_AnalogInput2
-
 	case 5:
 		pwmPin = nrf.SAADC_CH_PSELP_PSELP_AnalogInput3
-
 	case 28:
 		pwmPin = nrf.SAADC_CH_PSELP_PSELP_AnalogInput4
-
 	case 29:
 		pwmPin = nrf.SAADC_CH_PSELP_PSELP_AnalogInput5
-
 	case 30:
 		pwmPin = nrf.SAADC_CH_PSELP_PSELP_AnalogInput6
-
 	case 31:
 		pwmPin = nrf.SAADC_CH_PSELP_PSELP_AnalogInput7
-
 	default:
 		return 0
 	}
@@ -164,13 +168,22 @@ func (a ADC) Get() uint16 {
 	}
 	nrf.SAADC.EVENTS_STOPPED.Set(0)
 
-	value := int16(rawValue.Get())
-	if value < 0 {
-		value = 0
+	// convert to 16 bit resolution/value
+	var resolutionAdjustment uint8
+	switch nrf.SAADC.RESOLUTION.Get() {
+	case nrf.SAADC_RESOLUTION_VAL_8bit:
+		resolutionAdjustment = 8
+	case nrf.SAADC_RESOLUTION_VAL_10bit:
+		resolutionAdjustment = 6
+	case nrf.SAADC_RESOLUTION_VAL_12bit:
+		resolutionAdjustment = 4
+	case nrf.SAADC_RESOLUTION_VAL_14bit:
+		resolutionAdjustment = 2
+	default:
+		resolutionAdjustment = 4 // 12bit
 	}
 
-	// Return 16-bit result from 12-bit value.
-	return uint16(value << 4)
+	return rawValue.Get() << resolutionAdjustment
 }
 
 // SPI on the NRF.
@@ -196,7 +209,7 @@ type SPIConfig struct {
 	Mode      uint8
 }
 
-// Configure is intended to setup the SPI interface.
+// Configure is intended to set up the SPI interface.
 func (spi SPI) Configure(config SPIConfig) error {
 	// Disable bus to configure it
 	spi.Bus.ENABLE.Set(nrf.SPIM_ENABLE_ENABLE_Disabled)
