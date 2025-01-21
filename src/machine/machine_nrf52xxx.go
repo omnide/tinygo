@@ -183,7 +183,12 @@ func (a *ADC) Get() uint16 {
 		resolutionAdjustment = 4 // 12bit
 	}
 
-	return rawValue.Get() << resolutionAdjustment
+	value := int16(rawValue.Get())
+	if value < 0 {
+		value = 0
+	}
+
+	return uint16(value << resolutionAdjustment)
 }
 
 // SPI on the NRF.
