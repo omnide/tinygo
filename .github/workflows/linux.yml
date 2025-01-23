@@ -151,7 +151,7 @@ jobs:
       - name: Install wasmtime
         uses: bytecodealliance/actions/wasmtime/setup@v1
         with:
-          version: "19.0.1"
+          version: "29.0.1"
       - name: Install wasm-tools
         uses: bytecodealliance/actions/wasm-tools/setup@v1
       - name: Download release artifact
@@ -198,7 +198,7 @@ jobs:
       - name: Install wasmtime
         uses: bytecodealliance/actions/wasmtime/setup@v1
         with:
-          version: "19.0.1"
+          version: "29.0.1"
       - name: Setup `wasm-tools`
         uses: bytecodealliance/actions/wasm-tools/setup@v1
       - name: Restore LLVM source cache

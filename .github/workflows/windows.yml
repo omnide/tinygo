@@ -109,7 +109,7 @@ jobs:
             C:/Users/runneradmin/go/pkg/mod
       - name: Install wasmtime
         run: |
-          scoop install wasmtime@14.0.4
+          scoop install wasmtime@29.0.1
       - name: make gen-device
         run: make -j3 gen-device
       - name: Test TinyGo
@@ -216,7 +216,7 @@ jobs:
       - name: Install Dependencies
         shell: bash
         run: |
-          scoop install binaryen && scoop install wasmtime@14.0.4
+          scoop install binaryen && scoop install wasmtime@29.0.1
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Go
