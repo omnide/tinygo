@@ -867,6 +867,10 @@ endif
 	@$(MD5SUM) test.hex
 	$(TINYGO) build -size short -o test.hex -target=elecrow-rp2350      examples/blinky1
 	@$(MD5SUM) test.hex
+	$(TINYGO) build -size short -o test.hex -target=hw-651              examples/machinetest
+	@$(MD5SUM) test.hex
+	$(TINYGO) build -size short -o test.hex -target=hw-651-s110v8       examples/machinetest
+	@$(MD5SUM) test.hex	
 ifneq ($(WASM), 0)
 	$(TINYGO) build -size short -o wasm.wasm -target=wasm               examples/wasm/export
 	$(TINYGO) build -size short -o wasm.wasm -target=wasm               examples/wasm/main
