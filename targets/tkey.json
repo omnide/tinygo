@@ -7,7 +7,7 @@
     ],
     "linkerscript": "targets/tkey.ld",
     "scheduler": "none",
-    "gc": "leaking",
+    "gc": "conservative",
     "flash-command": "tkey-runapp {bin}",
     "serial": "uart"
 }
