@@ -10,11 +10,43 @@ import (
 	"context"
 	"crypto"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"net"
 	"sync"
 	"time"
 )
+
+const (
+	VersionTLS10 = 0x0301
+	VersionTLS11 = 0x0302
+	VersionTLS12 = 0x0303
+	VersionTLS13 = 0x0304
+
+	// Deprecated: SSLv3 is cryptographically broken, and is no longer
+	// supported by this package. See golang.org/issue/32716.
+	VersionSSL30 = 0x0300
+)
+
+// VersionName returns the name for the provided TLS version number
+// (e.g. "TLS 1.3"), or a fallback representation of the value if the
+// version is not implemented by this package.
+func VersionName(version uint16) string {
+	switch version {
+	case VersionSSL30:
+		return "SSLv3"
+	case VersionTLS10:
+		return "TLS 1.0"
+	case VersionTLS11:
+		return "TLS 1.1"
+	case VersionTLS12:
+		return "TLS 1.2"
+	case VersionTLS13:
+		return "TLS 1.3"
+	default:
+		return fmt.Sprintf("0x%04X", version)
+	}
+}
 
 // CurveID is the type of a TLS identifier for an elliptic curve. See
 // https://www.iana.org/assignments/tls-parameters/tls-parameters.xml#tls-parameters-8.
@@ -23,9 +55,21 @@ import (
 // only supports Elliptic Curve based groups. See RFC 8446, Section 4.2.7.
 type CurveID uint16
 
+// CipherSuiteName returns the standard name for the passed cipher suite ID
+//
+// Not Implemented.
+func CipherSuiteName(id uint16) string {
+	return fmt.Sprintf("0x%04X", id)
+}
+
 // ConnectionState records basic TLS details about the connection.
 type ConnectionState struct {
 	// TINYGO: empty; TLS connection offloaded to device
+	//
+	// Minimum (empty) fields for fortio.org/log http logging and others
+	// to compile and run.
+	PeerCertificates []*x509.Certificate
+	CipherSuite      uint16
 }
 
 // ClientAuthType declares the policy the server will follow for

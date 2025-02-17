@@ -15,6 +15,11 @@ jobs:
   nix-test:
     runs-on: ubuntu-latest
     steps:
+      - name: Uninstall system LLVM
+        # Hack to work around issue where we still include system headers for
+        # some reason.
+        # See: https://github.com/tinygo-org/tinygo/pull/4516#issuecomment-2416363668
+        run: sudo apt-get remove llvm-18
       - name: Checkout
         uses: actions/checkout@v4
       - name: Pull musl
@@ -24,7 +29,7 @@ jobs:
         uses: actions/cache/restore@v4
         id: cache-llvm-source
         with:
-          key: llvm-source-17-linux-nix-v1
+          key: llvm-source-19-linux-nix-v1
           path: |
             llvm-project/compiler-rt
       - name: Download LLVM source

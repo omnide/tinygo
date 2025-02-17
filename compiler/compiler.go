@@ -17,6 +17,7 @@ import (
 
 	"github.com/tinygo-org/tinygo/compiler/llvmutil"
 	"github.com/tinygo-org/tinygo/loader"
+	"github.com/tinygo-org/tinygo/src/tinygo"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/types/typeutil"
 	"tinygo.org/x/go-llvm"
@@ -44,6 +45,7 @@ type Config struct {
 	ABI             string
 	GOOS            string
 	GOARCH          string
+	BuildMode       string
 	CodeModel       string
 	RelocationModel string
 	SizeLevel       int
@@ -56,6 +58,7 @@ type Config struct {
 	MaxStackAlloc      uint64
 	NeedsStackObjects  bool
 	Debug              bool // Whether to emit debug information in the LLVM module.
+	PanicStrategy      string
 }
 
 // compilerContext contains function-independent data that should still be
@@ -241,7 +244,7 @@ func NewTargetMachine(config *Config) (llvm.TargetMachine, error) {
 }
 
 // Sizes returns a types.Sizes appropriate for the given target machine. It
-// includes the correct int size and aligment as is necessary for the Go
+// includes the correct int size and alignment as is necessary for the Go
 // typechecker.
 func Sizes(machine llvm.TargetMachine) types.Sizes {
 	targetData := machine.CreateTargetData()
@@ -1383,6 +1386,11 @@ func (b *builder) createFunction() {
 		b.llvmFn.SetLinkage(llvm.InternalLinkage)
 		b.createFunction()
 	}
+
+	// Create wrapper function that can be called externally.
+	if b.info.wasmExport != "" {
+		b.createWasmExport()
+	}
 }
 
 // posser is an interface that's implemented by both ssa.Value and
@@ -1673,7 +1681,12 @@ func (b *builder) createBuiltin(argTypes []types.Type, argValues []llvm.Value, c
 			result = b.CreateSelect(cmp, result, arg, "")
 		}
 		return result, nil
+	case "panic":
+		// This is rare, but happens in "defer panic()".
+		b.createRuntimeInvoke("_panic", argValues, "")
+		return llvm.Value{}, nil
 	case "print", "println":
+		b.createRuntimeCall("printlock", nil, "")
 		for i, value := range argValues {
 			if i >= 1 && callName == "println" {
 				b.createRuntimeCall("printspace", nil, "")
@@ -1734,6 +1747,7 @@ func (b *builder) createBuiltin(argTypes []types.Type, argValues []llvm.Value, c
 		if callName == "println" {
 			b.createRuntimeCall("printnl", nil, "")
 		}
+		b.createRuntimeCall("printunlock", nil, "")
 		return llvm.Value{}, nil // print() or println() returns void
 	case "real":
 		cplx := argValues[0]
@@ -1845,9 +1859,11 @@ func (b *builder) createFunctionCall(instr *ssa.CallCommon) (llvm.Value, error) 
 			return b.emitSV64Call(instr.Args, getPos(instr))
 		case strings.HasPrefix(name, "(device/riscv.CSR)."):
 			return b.emitCSROperation(instr)
-		case strings.HasPrefix(name, "syscall.Syscall") || strings.HasPrefix(name, "syscall.RawSyscall"):
-			return b.createSyscall(instr)
-		case strings.HasPrefix(name, "syscall.rawSyscallNoError"):
+		case strings.HasPrefix(name, "syscall.Syscall") || strings.HasPrefix(name, "syscall.RawSyscall") || strings.HasPrefix(name, "golang.org/x/sys/unix.Syscall") || strings.HasPrefix(name, "golang.org/x/sys/unix.RawSyscall"):
+			if b.GOOS != "darwin" {
+				return b.createSyscall(instr)
+			}
+		case strings.HasPrefix(name, "syscall.rawSyscallNoError") || strings.HasPrefix(name, "golang.org/x/sys/unix.RawSyscallNoError"):
 			return b.createRawSyscallNoError(instr)
 		case name == "runtime.supportsRecover":
 			supportsRecover := uint64(0)
@@ -1855,8 +1871,19 @@ func (b *builder) createFunctionCall(instr *ssa.CallCommon) (llvm.Value, error) 
 				supportsRecover = 1
 			}
 			return llvm.ConstInt(b.ctx.Int1Type(), supportsRecover, false), nil
+		case name == "runtime.panicStrategy":
+			panicStrategy := map[string]uint64{
+				"print": tinygo.PanicStrategyPrint,
+				"trap":  tinygo.PanicStrategyTrap,
+			}[b.Config.PanicStrategy]
+			return llvm.ConstInt(b.ctx.Int8Type(), panicStrategy, false), nil
 		case name == "runtime/interrupt.New":
 			return b.createInterruptGlobal(instr)
+		case name == "internal/abi.FuncPCABI0":
+			retval := b.createDarwinFuncPCABI0Call(instr)
+			if !retval.IsNil() {
+				return retval, nil
+			}
 		}
 
 		calleeType, callee = b.getFunction(fn)
@@ -1955,7 +1982,7 @@ func (b *builder) getValue(expr ssa.Value, pos token.Pos) llvm.Value {
 			return value
 		} else {
 			// indicates a compiler bug
-			panic("local has not been parsed: " + expr.String())
+			panic("SSA value not previously found in function: " + expr.String())
 		}
 	}
 }
@@ -2009,6 +2036,8 @@ func (b *builder) createExpr(expr ssa.Value) (llvm.Value, error) {
 			sizeValue := llvm.ConstInt(b.uintptrType, size, false)
 			layoutValue := b.createObjectLayout(typ, expr.Pos())
 			buf := b.createRuntimeCall("alloc", []llvm.Value{sizeValue, layoutValue}, expr.Comment)
+			align := b.targetData.ABITypeAlignment(typ)
+			buf.AddCallSiteAttribute(0, b.ctx.CreateEnumAttribute(llvm.AttributeKindID("align"), uint64(align)))
 			return buf, nil
 		} else {
 			buf := llvmutil.CreateEntryBlockAlloca(b.Builder, typ, expr.Comment)
@@ -2173,7 +2202,7 @@ func (b *builder) createExpr(expr ssa.Value) (llvm.Value, error) {
 			return llvm.Value{}, b.makeError(expr.Pos(), "todo: indexaddr: "+ptrTyp.String())
 		}
 
-		// Make sure index is at least the size of uintptr becuase getelementptr
+		// Make sure index is at least the size of uintptr because getelementptr
 		// assumes index is a signed integer.
 		index = b.extendInteger(index, expr.Index.Type(), b.uintptrType)
 
@@ -2215,6 +2244,7 @@ func (b *builder) createExpr(expr ssa.Value) (llvm.Value, error) {
 		sliceType := expr.Type().Underlying().(*types.Slice)
 		llvmElemType := b.getLLVMType(sliceType.Elem())
 		elemSize := b.targetData.TypeAllocSize(llvmElemType)
+		elemAlign := b.targetData.ABITypeAlignment(llvmElemType)
 		elemSizeValue := llvm.ConstInt(b.uintptrType, elemSize, false)
 
 		maxSize := b.maxSliceSize(llvmElemType)
@@ -2238,6 +2268,7 @@ func (b *builder) createExpr(expr ssa.Value) (llvm.Value, error) {
 		sliceSize := b.CreateBinOp(llvm.Mul, elemSizeValue, sliceCapCast, "makeslice.cap")
 		layoutValue := b.createObjectLayout(llvmElemType, expr.Pos())
 		slicePtr := b.createRuntimeCall("alloc", []llvm.Value{sliceSize, layoutValue}, "makeslice.buf")
+		slicePtr.AddCallSiteAttribute(0, b.ctx.CreateEnumAttribute(llvm.AttributeKindID("align"), uint64(elemAlign)))
 
 		// Extend or truncate if necessary. This is safe as we've already done
 		// the bounds check.
@@ -2549,7 +2580,7 @@ func (b *builder) createBinOp(op token.Token, typ, ytyp types.Type, x, y llvm.Va
 				sizeY := b.targetData.TypeAllocSize(y.Type())
 
 				// Check if the shift is bigger than the bit-width of the shifted value.
-				// This is UB in LLVM, so it needs to be handled seperately.
+				// This is UB in LLVM, so it needs to be handled separately.
 				// The Go spec indirectly defines the result as 0.
 				// Negative shifts are handled earlier, so we can treat y as unsigned.
 				overshifted := b.CreateICmp(llvm.IntUGE, y, llvm.ConstInt(y.Type(), 8*sizeX, false), "shift.overflow")

@@ -9,6 +9,7 @@ SECTIONS
     .text :
     {
         KEEP(*(.isr_vector))
+        KEEP(*(.after_isr_vector)) /* for the RP2350 */
         *(.text)
         *(.text.*)
         *(.rodata)

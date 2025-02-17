@@ -33,6 +33,17 @@ func (c *Config) CPU() string {
 	return c.Target.CPU
 }
 
+// The current build mode (like the `-buildmode` command line flag).
+func (c *Config) BuildMode() string {
+	if c.Options.BuildMode != "" {
+		return c.Options.BuildMode
+	}
+	if c.Target.BuildMode != "" {
+		return c.Target.BuildMode
+	}
+	return "default"
+}
+
 // Features returns a list of features this CPU supports. For example, for a
 // RISC-V processor, that could be "+a,+c,+m". For many targets, an empty list
 // will be returned.
@@ -60,7 +71,7 @@ func (c *Config) GOOS() string {
 }
 
 // GOARCH returns the GOARCH of the target. This might not always be the actual
-// archtecture: for example, the AVR target is not supported by the Go standard
+// architecture: for example, the AVR target is not supported by the Go standard
 // library so such targets will usually pretend to be linux/arm.
 func (c *Config) GOARCH() string {
 	return c.Target.GOARCH
@@ -72,11 +83,19 @@ func (c *Config) GOARM() string {
 	return c.Options.GOARM
 }
 
+// GOMIPS will return the GOMIPS environment variable given to the compiler when
+// building a program.
+func (c *Config) GOMIPS() string {
+	return c.Options.GOMIPS
+}
+
 // BuildTags returns the complete list of build tags used during this build.
 func (c *Config) BuildTags() []string {
-	tags := append(c.Target.BuildTags, []string{
+	tags := append([]string(nil), c.Target.BuildTags...) // copy slice (avoid a race)
+	tags = append(tags, []string{
 		"tinygo",                                     // that's the compiler
 		"purego",                                     // to get various crypto packages to work
+		"osusergo",                                   // to get os/user to work
 		"math_big_pure_go",                           // to get math/big to work
 		"gc." + c.GC(), "scheduler." + c.Scheduler(), // used inside the runtime package
 		"serial." + c.Serial()}...) // used inside the machine package
@@ -206,14 +225,26 @@ func (c *Config) RP2040BootPatch() bool {
 	return false
 }
 
+// Return a canonicalized architecture name, so we don't have to deal with arm*
+// vs thumb* vs arm64.
+func CanonicalArchName(triple string) string {
+	arch := strings.Split(triple, "-")[0]
+	if arch == "arm64" {
+		return "aarch64"
+	}
+	if strings.HasPrefix(arch, "arm") || strings.HasPrefix(arch, "thumb") {
+		return "arm"
+	}
+	if arch == "mipsel" {
+		return "mips"
+	}
+	return arch
+}
+
 // MuslArchitecture returns the architecture name as used in musl libc. It is
 // usually the same as the first part of the LLVM triple, but not always.
 func MuslArchitecture(triple string) string {
-	arch := strings.Split(triple, "-")[0]
-	if strings.HasPrefix(arch, "arm") || strings.HasPrefix(arch, "thumb") {
-		arch = "arm"
-	}
-	return arch
+	return CanonicalArchName(triple)
 }
 
 // LibcPath returns the path to the libc directory. The libc path will be either
@@ -226,6 +257,9 @@ func (c *Config) LibcPath(name string) (path string, precompiled bool) {
 	}
 	if c.ABI() != "" {
 		archname += "-" + c.ABI()
+	}
+	if c.Target.SoftFloat {
+		archname += "-softfloat"
 	}
 
 	// Try to load a precompiled library.
@@ -297,6 +331,7 @@ func (c *Config) CFlags(libclang bool) []string {
 			"-isystem", filepath.Join(path, "include"),
 			"-isystem", filepath.Join(picolibcDir, "include"),
 			"-isystem", filepath.Join(picolibcDir, "tinystdio"),
+			"-D__PICOLIBC_ERRNO_FUNCTION=__errno_location",
 		)
 	case "musl":
 		root := goenv.Get("TINYGOROOT")
@@ -306,11 +341,16 @@ func (c *Config) CFlags(libclang bool) []string {
 			"-nostdlibinc",
 			"-isystem", filepath.Join(path, "include"),
 			"-isystem", filepath.Join(root, "lib", "musl", "arch", arch),
+			"-isystem", filepath.Join(root, "lib", "musl", "arch", "generic"),
 			"-isystem", filepath.Join(root, "lib", "musl", "include"),
 		)
 	case "wasi-libc":
 		root := goenv.Get("TINYGOROOT")
-		cflags = append(cflags, "--sysroot="+root+"/lib/wasi-libc/sysroot")
+		cflags = append(cflags,
+			"-nostdlibinc",
+			"-isystem", root+"/lib/wasi-libc/sysroot/include")
+	case "wasmbuiltins":
+		// nothing to add (library is purely for builtins)
 	case "mingw-w64":
 		root := goenv.Get("TINYGOROOT")
 		path, _ := c.LibcPath("mingw-w64")
@@ -368,6 +408,8 @@ func (c *Config) LDFlags() []string {
 	if c.Target.LinkerScript != "" {
 		ldflags = append(ldflags, "-T", c.Target.LinkerScript)
 	}
+	ldflags = append(ldflags, c.Options.ExtLDFlags...)
+
 	return ldflags
 }
 
@@ -435,7 +477,7 @@ func (c *Config) BinaryFormat(ext string) string {
 
 // Programmer returns the flash method and OpenOCD interface name given a
 // particular configuration. It may either be all configured in the target JSON
-// file or be modified using the -programmmer command-line option.
+// file or be modified using the -programmer command-line option.
 func (c *Config) Programmer() (method, openocdInterface string) {
 	switch c.Options.Programmer {
 	case "":
@@ -475,9 +517,6 @@ func (c *Config) OpenOCDConfiguration() (args []string, err error) {
 		return nil, fmt.Errorf("unknown OpenOCD transport: %#v", c.Target.OpenOCDTransport)
 	}
 	args = []string{"-f", "interface/" + openocdInterface + ".cfg"}
-	for _, cmd := range c.Target.OpenOCDCommands {
-		args = append(args, "-c", cmd)
-	}
 	if c.Target.OpenOCDTransport != "" {
 		transport := c.Target.OpenOCDTransport
 		if transport == "swd" {
@@ -489,6 +528,9 @@ func (c *Config) OpenOCDConfiguration() (args []string, err error) {
 		args = append(args, "-c", "transport select "+transport)
 	}
 	args = append(args, "-f", "target/"+c.Target.OpenOCDTarget+".cfg")
+	for _, cmd := range c.Target.OpenOCDCommands {
+		args = append(args, "-c", cmd)
+	}
 	return args, nil
 }
 

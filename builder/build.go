@@ -61,6 +61,10 @@ type BuildResult struct {
 	// correctly printing test results: the import path isn't always the same as
 	// the path listed on the command line.
 	ImportPath string
+
+	// Map from path to package name. It is needed to attribute binary size to
+	// the right Go package.
+	PackagePathMap map[string]string
 }
 
 // packageAction is the struct that is serialized to JSON and hashed, to work as
@@ -148,7 +152,7 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 		job := makeDarwinLibSystemJob(config, tmpdir)
 		libcDependencies = append(libcDependencies, job)
 	case "musl":
-		job, unlock, err := Musl.load(config, tmpdir)
+		job, unlock, err := libMusl.load(config, tmpdir)
 		if err != nil {
 			return BuildResult{}, err
 		}
@@ -156,7 +160,7 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 		libcDependencies = append(libcDependencies, dummyCompileJob(filepath.Join(filepath.Dir(job.result), "crt1.o")))
 		libcDependencies = append(libcDependencies, job)
 	case "picolibc":
-		libcJob, unlock, err := Picolibc.load(config, tmpdir)
+		libcJob, unlock, err := libPicolibc.load(config, tmpdir)
 		if err != nil {
 			return BuildResult{}, err
 		}
@@ -168,12 +172,20 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 			return BuildResult{}, errors.New("could not find wasi-libc, perhaps you need to run `make wasi-libc`?")
 		}
 		libcDependencies = append(libcDependencies, dummyCompileJob(path))
-	case "mingw-w64":
-		_, unlock, err := MinGW.load(config, tmpdir)
+	case "wasmbuiltins":
+		libcJob, unlock, err := libWasmBuiltins.load(config, tmpdir)
 		if err != nil {
 			return BuildResult{}, err
 		}
-		unlock()
+		defer unlock()
+		libcDependencies = append(libcDependencies, libcJob)
+	case "mingw-w64":
+		job, unlock, err := libMinGW.load(config, tmpdir)
+		if err != nil {
+			return BuildResult{}, err
+		}
+		defer unlock()
+		libcDependencies = append(libcDependencies, job)
 		libcDependencies = append(libcDependencies, makeMinGWExtraLibs(tmpdir, config.GOARCH())...)
 	case "":
 		// no library specified, so nothing to do
@@ -189,6 +201,7 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 		ABI:             config.ABI(),
 		GOOS:            config.GOOS(),
 		GOARCH:          config.GOARCH(),
+		BuildMode:       config.BuildMode(),
 		CodeModel:       config.CodeModel(),
 		RelocationModel: config.RelocationModel(),
 		SizeLevel:       sizeLevel,
@@ -200,6 +213,7 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 		MaxStackAlloc:      config.MaxStackAlloc(),
 		NeedsStackObjects:  config.NeedsStackObjects(),
 		Debug:              !config.Options.SkipDWARF, // emit DWARF except when -internal-nodwarf is passed
+		PanicStrategy:      config.PanicStrategy(),
 	}
 
 	// Load the target machine, which is the LLVM object that contains all
@@ -230,6 +244,12 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 	err = lprogram.Parse()
 	if err != nil {
 		return result, err
+	}
+
+	// Store which filesystem paths map to which package name.
+	result.PackagePathMap = make(map[string]string, len(lprogram.Packages))
+	for _, pkg := range lprogram.Sorted() {
+		result.PackagePathMap[pkg.OriginalDir()] = pkg.Pkg.Path()
 	}
 
 	// Create the *ssa.Program. This does not yet build the entire SSA of the
@@ -345,10 +365,6 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 		}
 		packageActionIDJobs[pkg.ImportPath] = packageActionIDJob
 
-		// Build the SSA for the given package.
-		ssaPkg := program.Package(pkg.Pkg)
-		ssaPkg.Build()
-
 		// Now create the job to actually build the package. It will exit early
 		// if the package is already compiled.
 		job := &compileJob{
@@ -371,7 +387,7 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 				defer mod.Context().Dispose()
 				defer mod.Dispose()
 				if errs != nil {
-					return newMultiError(errs)
+					return newMultiError(errs, pkg.ImportPath)
 				}
 				if err := llvm.VerifyModule(mod, llvm.PrintMessageAction); err != nil {
 					return errors.New("verification error after compiling package " + pkg.ImportPath)
@@ -644,10 +660,17 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 	result.Binary = result.Executable // final file
 	ldflags := append(config.LDFlags(), "-o", result.Executable)
 
+	if config.Options.BuildMode == "c-shared" {
+		if !strings.HasPrefix(config.Triple(), "wasm32-") {
+			return result, fmt.Errorf("buildmode c-shared is only supported on wasm at the moment")
+		}
+		ldflags = append(ldflags, "--no-entry")
+	}
+
 	// Add compiler-rt dependency if needed. Usually this is a simple load from
 	// a cache.
 	if config.Target.RTLib == "compiler-rt" {
-		job, unlock, err := CompilerRT.load(config, tmpdir)
+		job, unlock, err := libCompilerRT.load(config, tmpdir)
 		if err != nil {
 			return result, err
 		}
@@ -677,7 +700,7 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 	for _, pkg := range lprogram.Sorted() {
 		pkg := pkg
 		for _, filename := range pkg.CFiles {
-			abspath := filepath.Join(pkg.Dir, filename)
+			abspath := filepath.Join(pkg.OriginalDir(), filename)
 			job := &compileJob{
 				description: "compile CGo file " + abspath,
 				run: func(job *compileJob) error {
@@ -741,6 +764,7 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 				ldflags = append(ldflags, dependency.result)
 			}
 			ldflags = append(ldflags, "-mllvm", "-mcpu="+config.CPU())
+			ldflags = append(ldflags, "-mllvm", "-mattr="+config.Features()) // needed for MIPS softfloat
 			if config.GOOS() == "windows" {
 				// Options for the MinGW wrapper for the lld COFF linker.
 				ldflags = append(ldflags,
@@ -765,7 +789,7 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 			if sizeLevel >= 2 {
 				// Workaround with roughly the same effect as
 				// https://reviews.llvm.org/D119342.
-				// Can hopefully be removed in LLVM 18.
+				// Can hopefully be removed in LLVM 19.
 				ldflags = append(ldflags,
 					"-mllvm", "--rotation-max-header-size=0")
 			}
@@ -774,7 +798,7 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 			}
 			err = link(config.Target.Linker, ldflags...)
 			if err != nil {
-				return &commandError{"failed to link", result.Executable, err}
+				return err
 			}
 
 			var calculatedStacks []string
@@ -798,6 +822,12 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 					return fmt.Errorf("could not modify stack sizes: %w", err)
 				}
 			}
+
+			// Apply patches of bootloader in the order they appear.
+			if len(config.Target.BootPatches) > 0 {
+				err = applyPatches(result.Executable, config.Target.BootPatches)
+			}
+
 			if config.RP2040BootPatch() {
 				// Patch the second stage bootloader CRC into the .boot2 section
 				err = patchRP2040BootCRC(result.Executable)
@@ -817,14 +847,20 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 					args = append(args, "--asyncify")
 				}
 
+				inputFile := result.Binary
+				result.Binary = result.Executable + ".wasmopt"
 				args = append(args,
 					opt,
 					"-g",
-					result.Executable,
-					"--output", result.Executable,
+					inputFile,
+					"--output", result.Binary,
 				)
 
-				cmd := exec.Command(goenv.Get("WASMOPT"), args...)
+				wasmopt := goenv.Get("WASMOPT")
+				if config.Options.PrintCommands != nil {
+					config.Options.PrintCommands(wasmopt, args...)
+				}
+				cmd := exec.Command(wasmopt, args...)
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr
 
@@ -834,20 +870,77 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 				}
 			}
 
-			// Print code size if requested.
-			if config.Options.PrintSizes == "short" || config.Options.PrintSizes == "full" {
-				packagePathMap := make(map[string]string, len(lprogram.Packages))
-				for _, pkg := range lprogram.Sorted() {
-					packagePathMap[pkg.OriginalDir()] = pkg.Pkg.Path()
+			// Run wasm-tools for component-model binaries
+			witPackage := strings.ReplaceAll(config.Target.WITPackage, "{root}", goenv.Get("TINYGOROOT"))
+			if config.Options.WITPackage != "" {
+				witPackage = config.Options.WITPackage
+			}
+			witWorld := config.Target.WITWorld
+			if config.Options.WITWorld != "" {
+				witWorld = config.Options.WITWorld
+			}
+			if witPackage != "" && witWorld != "" {
+
+				// wasm-tools component embed -w wasi:cli/command
+				// 		$$(tinygo env TINYGOROOT)/lib/wasi-cli/wit/ main.wasm -o embedded.wasm
+				componentEmbedInputFile := result.Binary
+				result.Binary = result.Executable + ".wasm-component-embed"
+				args := []string{
+					"component",
+					"embed",
+					"-w", witWorld,
+					witPackage,
+					componentEmbedInputFile,
+					"-o", result.Binary,
 				}
-				sizes, err := loadProgramSize(result.Executable, packagePathMap)
+
+				wasmtools := goenv.Get("WASMTOOLS")
+				if config.Options.PrintCommands != nil {
+					config.Options.PrintCommands(wasmtools, args...)
+				}
+				cmd := exec.Command(wasmtools, args...)
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+
+				err := cmd.Run()
+				if err != nil {
+					return fmt.Errorf("`wasm-tools component embed` failed: %w", err)
+				}
+
+				// wasm-tools component new embedded.wasm -o component.wasm
+				componentNewInputFile := result.Binary
+				result.Binary = result.Executable + ".wasm-component-new"
+				args = []string{
+					"component",
+					"new",
+					componentNewInputFile,
+					"-o", result.Binary,
+				}
+
+				if config.Options.PrintCommands != nil {
+					config.Options.PrintCommands(wasmtools, args...)
+				}
+				cmd = exec.Command(wasmtools, args...)
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+
+				err = cmd.Run()
+				if err != nil {
+					return fmt.Errorf("`wasm-tools component new` failed: %w", err)
+				}
+			}
+
+			// Print code size if requested.
+			if config.Options.PrintSizes != "" {
+				sizes, err := loadProgramSize(result.Executable, result.PackagePathMap)
 				if err != nil {
 					return err
 				}
-				if config.Options.PrintSizes == "short" {
+				switch config.Options.PrintSizes {
+				case "short":
 					fmt.Printf("   code    data     bss |   flash     ram\n")
 					fmt.Printf("%7d %7d %7d | %7d %7d\n", sizes.Code+sizes.ROData, sizes.Data, sizes.BSS, sizes.Flash(), sizes.RAM())
-				} else {
+				case "full":
 					if !config.Debug() {
 						fmt.Println("warning: data incomplete, remove the -no-debug flag for more detail")
 					}
@@ -859,6 +952,13 @@ func Build(pkgName, outpath, tmpdir string, config *compileopts.Config) (BuildRe
 					}
 					fmt.Printf("------------------------------- | --------------- | -------\n")
 					fmt.Printf("%7d %7d %7d %7d | %7d %7d | total\n", sizes.Code, sizes.ROData, sizes.Data, sizes.BSS, sizes.Code+sizes.ROData+sizes.Data, sizes.Data+sizes.BSS)
+				case "html":
+					const filename = "size-report.html"
+					err := writeSizeReport(sizes, filename, pkgName)
+					if err != nil {
+						return err
+					}
+					fmt.Println("Wrote size report to", filename)
 				}
 			}
 
@@ -1058,7 +1158,7 @@ func optimizeProgram(mod llvm.Module, config *compileopts.Config, globalValues m
 	// O0/O1/O2/Os/Oz optimization pipeline).
 	errs := transform.Optimize(mod, config)
 	if len(errs) > 0 {
-		return newMultiError(errs)
+		return newMultiError(errs, "")
 	}
 	if err := llvm.VerifyModule(mod, llvm.PrintMessageAction); err != nil {
 		return errors.New("verification failure after LLVM optimization passes")
@@ -1185,7 +1285,7 @@ func determineStackSizes(mod llvm.Module, executable string) ([]string, map[stri
 	}
 
 	// Goroutines need to be started and finished and take up some stack space
-	// that way. This can be measured by measuing the stack size of
+	// that way. This can be measured by measuring the stack size of
 	// tinygo_startTask.
 	if numFuncs := len(functions["tinygo_startTask"]); numFuncs != 1 {
 		return nil, nil, fmt.Errorf("expected exactly one definition of tinygo_startTask, got %d", numFuncs)
@@ -1348,6 +1448,23 @@ func printStacks(calculatedStacks []string, stackSizes map[string]functionStackS
 	}
 }
 
+func applyPatches(executable string, bootPatches []string) (err error) {
+	for _, patch := range bootPatches {
+		switch patch {
+		case "rp2040":
+			err = patchRP2040BootCRC(executable)
+		// case "rp2350":
+		// 	err = patchRP2350BootIMAGE_DEF(executable)
+		default:
+			err = errors.New("undefined boot patch name")
+		}
+		if err != nil {
+			return fmt.Errorf("apply boot patch %q: %w", patch, err)
+		}
+	}
+	return nil
+}
+
 // RP2040 second stage bootloader CRC32 calculation
 //
 // Spec: https://datasheets.raspberrypi.org/rp2040/rp2040-datasheet.pdf
@@ -1359,7 +1476,7 @@ func patchRP2040BootCRC(executable string) error {
 	}
 
 	if len(bytes) != 256 {
-		return fmt.Errorf("rp2040 .boot2 section must be exactly 256 bytes")
+		return fmt.Errorf("rp2040 .boot2 section must be exactly 256 bytes, got %d", len(bytes))
 	}
 
 	// From the 'official' RP2040 checksum script:
@@ -1397,4 +1514,11 @@ func lock(path string) func() {
 	}
 
 	return func() { flock.Close() }
+}
+
+func b2u8(b bool) uint8 {
+	if b {
+		return 1
+	}
+	return 0
 }

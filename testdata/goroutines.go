@@ -1,7 +1,6 @@
 package main
 
 import (
-	"runtime"
 	"sync"
 	"time"
 )
@@ -83,17 +82,19 @@ func main() {
 
 	testGoOnInterface(Foo(0))
 
-	testCond()
-
 	testIssue1790()
+
+	done := make(chan int)
+	go testPaddedParameters(paddedStruct{x: 5, y: 7}, done)
+	<-done
 }
 
 func acquire(m *sync.Mutex) {
 	m.Lock()
 	println("acquired mutex from goroutine")
 	time.Sleep(2 * time.Millisecond)
+	println("releasing mutex from goroutine")
 	m.Unlock()
-	println("released mutex from goroutine")
 }
 
 func sub() {
@@ -168,47 +169,6 @@ func testGoOnBuiltins() {
 	}
 }
 
-func testCond() {
-	var cond runtime.Cond
-	go func() {
-		// Wait for the caller to wait on the cond.
-		time.Sleep(time.Millisecond)
-
-		// Notify the caller.
-		ok := cond.Notify()
-		if !ok {
-			panic("notification not sent")
-		}
-
-		// This notification will be buffered inside the cond.
-		ok = cond.Notify()
-		if !ok {
-			panic("notification not queued")
-		}
-
-		// This notification should fail, since there is already one buffered.
-		ok = cond.Notify()
-		if ok {
-			panic("notification double-sent")
-		}
-	}()
-
-	// Verify that the cond has no pending notifications.
-	ok := cond.Poll()
-	if ok {
-		panic("unexpected early notification")
-	}
-
-	// Wait for the goroutine spawned earlier to send a notification.
-	cond.Wait()
-
-	// The goroutine should have also queued a notification in the cond.
-	ok = cond.Poll()
-	if !ok {
-		panic("missing queued notification")
-	}
-}
-
 var once sync.Once
 
 func testGoOnInterface(f Itf) {
@@ -242,4 +202,16 @@ func (f Foo) Wait() {
 	println("called: Foo.Wait")
 	time.Sleep(time.Microsecond)
 	println("  ...waited")
+}
+
+type paddedStruct struct {
+	x uint8
+	_ [0]int64
+	y uint8
+}
+
+// Structs with interesting padding used to crash.
+func testPaddedParameters(s paddedStruct, done chan int) {
+	println("paddedStruct:", s.x, s.y)
+	close(done)
 }

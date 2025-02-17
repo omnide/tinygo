@@ -14,7 +14,7 @@ func machineTicks() uint64
 // machineLightSleep is provided by package machine.
 func machineLightSleep(uint64)
 
-type timeUnit uint64
+type timeUnit int64
 
 // ticks returns the number of ticks (microseconds) elapsed since power up.
 func ticks() timeUnit {
@@ -31,10 +31,6 @@ func nanosecondsToTicks(ns int64) timeUnit {
 }
 
 func sleepTicks(d timeUnit) {
-	if d == 0 {
-		return
-	}
-
 	if hasScheduler {
 		// With scheduler, sleepTicks may return early if an interrupt or
 		// event fires - so scheduler can schedule any go routines now

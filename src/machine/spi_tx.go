@@ -1,11 +1,11 @@
-//go:build !baremetal || atmega || fe310 || k210 || (nxp && !mk66f18) || (stm32 && !stm32f7x2 && !stm32l5x2)
+//go:build atmega || fe310 || k210 || (nxp && !mk66f18) || (stm32 && !stm32f7x2 && !stm32l5x2)
 
 // This file implements the SPI Tx function for targets that don't have a custom
 // (faster) implementation for it.
 
 package machine
 
-// Tx handles read/write operation for SPI interface. Since SPI is a syncronous write/read
+// Tx handles read/write operation for SPI interface. Since SPI is a synchronous write/read
 // interface, there must always be the same number of bytes written as bytes read.
 // The Tx method knows about this, and offers a few different ways of calling it.
 //

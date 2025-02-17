@@ -9,7 +9,9 @@ concurrency:
 
 jobs:
   sizediff:
-    runs-on: ubuntu-22.04
+    # Note: when updating the Ubuntu version, also update the Ubuntu version in
+    # sizediff-install-pkgs.sh
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
     steps:
@@ -28,7 +30,7 @@ jobs:
         uses: actions/cache@v4
         id: cache-llvm-source
         with:
-          key: llvm-source-17-sizediff-v1
+          key: llvm-source-19-sizediff-v1
           path: |
             llvm-project/compiler-rt
       - name: Download LLVM source
@@ -37,7 +39,7 @@ jobs:
       - name: Cache Go
         uses: actions/cache@v4
         with:
-          key: go-cache-linux-sizediff-v1-${{ hashFiles('go.mod') }}
+          key: go-cache-linux-sizediff-v2-${{ hashFiles('go.mod') }}
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod

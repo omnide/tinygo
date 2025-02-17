@@ -101,7 +101,13 @@ type Dialer struct {
 //
 // The returned Conn, if any, will always be of type *Conn.
 func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	return nil, errors.New("tls:DialContext not implmented")
+	switch network {
+	case "tcp", "tcp4":
+	default:
+		return nil, fmt.Errorf("Network %s not supported", network)
+	}
+
+	return net.DialTLS(addr)
 }
 
 // LoadX509KeyPair reads and parses a public/private key pair from a pair

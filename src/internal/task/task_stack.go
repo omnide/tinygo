@@ -44,7 +44,7 @@ func Current() *Task {
 // This function may only be called when running on a goroutine stack, not when running on the system stack or in an interrupt.
 func Pause() {
 	// Check whether the canary (the lowest address of the stack) is still
-	// valid. If it is not, a stack overflow has occured.
+	// valid. If it is not, a stack overflow has occurred.
 	if *currentTask.state.canaryPtr != stackCanary {
 		runtimePanic("goroutine stack overflow")
 	}
@@ -101,18 +101,12 @@ func swapTask(oldStack uintptr, newStack *uintptr)
 //go:extern tinygo_startTask
 var startTask [0]uint8
 
-//go:linkname runqueuePushBack runtime.runqueuePushBack
-func runqueuePushBack(*Task)
-
-//go:linkname runtime_alloc runtime.alloc
-func runtime_alloc(size uintptr, layout unsafe.Pointer) unsafe.Pointer
-
 // start creates and starts a new goroutine with the given function and arguments.
 // The new goroutine is scheduled to run later.
 func start(fn uintptr, args unsafe.Pointer, stackSize uintptr) {
 	t := &Task{}
 	t.state.initialize(fn, args, stackSize)
-	runqueuePushBack(t)
+	scheduleTask(t)
 }
 
 // OnSystemStack returns whether the caller is running on the system stack.

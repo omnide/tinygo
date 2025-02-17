@@ -119,19 +119,17 @@ func ticks() timeUnit {
 }
 
 func sleepTicks(duration timeUnit) {
-	if duration >= 0 {
-		curr := ticks()
-		last := curr + duration // 64-bit overflow unlikely
-		for curr < last {
-			cycles := timeUnit((last - curr) / pitCyclesPerMicro)
-			if cycles > 0xFFFFFFFF {
-				cycles = 0xFFFFFFFF
-			}
-			if !timerSleep(uint32(cycles)) {
-				return // return early due to interrupt
-			}
-			curr = ticks()
+	curr := ticks()
+	last := curr + duration // 64-bit overflow unlikely
+	for curr < last {
+		cycles := timeUnit((last - curr) / pitCyclesPerMicro)
+		if cycles > 0xFFFFFFFF {
+			cycles = 0xFFFFFFFF
 		}
+		if !timerSleep(uint32(cycles)) {
+			return // return early due to interrupt
+		}
+		curr = ticks()
 	}
 }
 

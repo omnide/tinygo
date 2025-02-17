@@ -41,11 +41,9 @@ func memmove(dst, src unsafe.Pointer, size uintptr)
 // like llvm.memset.p0.i32(ptr, 0, size, false).
 func memzero(ptr unsafe.Pointer, size uintptr)
 
-// This intrinsic returns the current stack pointer.
-// It is normally used together with llvm.stackrestore but also works to get the
-// current stack pointer in a platform-independent way.
-//
-//export llvm.stacksave
+// Return the current stack pointer using the llvm.stacksave.p0 intrinsic.
+// It is normally used together with llvm.stackrestore.p0 but also works to get
+// the current stack pointer in a platform-independent way.
 func stacksave() unsafe.Pointer
 
 //export strlen
@@ -123,4 +121,14 @@ func write(fd uintptr, p unsafe.Pointer, n int32) int32 {
 		return n
 	}
 	return 0
+}
+
+// getAuxv is linknamed from golang.org/x/sys/cpu.
+func getAuxv() []uintptr {
+	return nil
+}
+
+// Called from cgo to obtain the errno value.
+func cgo_errno() uintptr {
+	return uintptr(*libc_errno_location())
 }

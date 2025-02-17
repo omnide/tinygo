@@ -113,3 +113,6 @@ func syscall_Getpagesize() int {
 	_GetSystemInfo(unsafe.Pointer(&info))
 	return int(info.dwpagesize)
 }
+
+//export _errno
+func libc_errno_location() *int32

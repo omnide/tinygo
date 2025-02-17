@@ -5,17 +5,17 @@ commands:
     steps:
       - run:
           name: "Pull submodules"
-          command: git submodule update --init --recursive
+          command: git submodule update --init
   llvm-source-linux:
     steps:
       - restore_cache:
           keys:
-            - llvm-source-17-v1
+            - llvm-source-19-v1
       - run:
           name: "Fetch LLVM source"
           command: make llvm-source
       - save_cache:
-          key: llvm-source-17-v1
+          key: llvm-source-19-v1
           paths:
             - llvm-project/clang/lib/Headers
             - llvm-project/clang/include
@@ -33,13 +33,13 @@ commands:
     steps:
       - restore_cache:
           keys:
-            - binaryen-linux-v2
+            - binaryen-linux-v3
       - run:
           name: "Build Binaryen"
           command: |
             make binaryen
       - save_cache:
-          key: binaryen-linux-v2
+          key: binaryen-linux-v3
           paths:
             - build/wasm-opt
   test-linux:
@@ -88,8 +88,10 @@ commands:
               # Do this before gen-device so that it doesn't check the
               # formatting of generated files.
               name: Check Go code formatting
-              command: make fmt-check
+              command: make fmt-check lint
       - run: make gen-device -j4
+      # TODO: change this to -skip='TestErrors|TestWasm' with Go 1.20
+      - run: go test -tags=llvm<<parameters.llvm>> -short -run='TestBuild|TestTest|TestGetList|TestTraceback'
       - run: make smoketest XTENSA=0
       - save_cache:
           key: go-cache-v4-{{ checksum "go.mod" }}-{{ .Environment.CIRCLE_BUILD_NUM }}
@@ -98,19 +100,21 @@ commands:
             - /go/pkg/mod
 
 jobs:
-  test-llvm15-go118:
+  test-llvm15-go119:
     docker:
-      - image: golang:1.18-bullseye
+      - image: golang:1.19-bullseye
     steps:
       - test-linux:
           llvm: "15"
+          # "make lint" fails before go 1.21 because internal/tools/go.mod specifies packages that require go 1.21
+          fmt-check: false
     resource_class: large
-  test-llvm17-go122:
+  test-llvm19-go123:
     docker:
-      - image: golang:1.22-bullseye
+      - image: golang:1.23-bullseye
     steps:
       - test-linux:
-          llvm: "17"
+          llvm: "19"
     resource_class: large
 
 workflows:
@@ -118,6 +122,6 @@ workflows:
     jobs:
       # This tests our lowest supported versions of Go and LLVM, to make sure at
       # least the smoke tests still pass.
-      - test-llvm15-go118
-      # This tests LLVM 17 support when linking against system libraries.
-      - test-llvm17-go122
+      - test-llvm15-go119
+      # This tests LLVM 19 support when linking against system libraries.
+      - test-llvm19-go123

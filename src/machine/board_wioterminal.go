@@ -376,6 +376,14 @@ var (
 	I2C1 = sercomI2CM3
 )
 
+// I2S pins
+const (
+	I2S_SCK_PIN = BCM18
+	I2S_SDO_PIN = BCM21
+	I2S_SDI_PIN = BCM20
+	I2S_WS_PIN  = BCM19
+)
+
 // SPI pins
 const (
 	SPI0_SCK_PIN = SCK // SCK:  SERCOM5/PAD[1]

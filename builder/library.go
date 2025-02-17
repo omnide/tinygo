@@ -35,19 +35,6 @@ type Library struct {
 	crt1Source string
 }
 
-// Load the library archive, possibly generating and caching it if needed.
-// The resulting directory may be stored in the provided tmpdir, which is
-// expected to be removed after the Load call.
-func (l *Library) Load(config *compileopts.Config, tmpdir string) (dir string, err error) {
-	job, unlock, err := l.load(config, tmpdir)
-	if err != nil {
-		return "", err
-	}
-	defer unlock()
-	err = runJobs(job, config.Options.Semaphore)
-	return filepath.Dir(job.result), err
-}
-
 // load returns a compile job to build this library file for the given target
 // and CPU. It may return a dummy compileJob if the library build is already
 // cached. The path is stored as job.result but is only valid after the job has
@@ -162,25 +149,37 @@ func (l *Library) load(config *compileopts.Config, tmpdir string) (job *compileJ
 	if config.ABI() != "" {
 		args = append(args, "-mabi="+config.ABI())
 	}
-	if strings.HasPrefix(target, "arm") || strings.HasPrefix(target, "thumb") {
+	switch compileopts.CanonicalArchName(target) {
+	case "arm":
 		if strings.Split(target, "-")[2] == "linux" {
 			args = append(args, "-fno-unwind-tables", "-fno-asynchronous-unwind-tables")
 		} else {
 			args = append(args, "-fshort-enums", "-fomit-frame-pointer", "-mfloat-abi=soft", "-fno-unwind-tables", "-fno-asynchronous-unwind-tables")
 		}
-	}
-	if strings.HasPrefix(target, "avr") {
+	case "avr":
 		// AVR defaults to C float and double both being 32-bit. This deviates
 		// from what most code (and certainly compiler-rt) expects. So we need
 		// to force the compiler to use 64-bit floating point numbers for
 		// double.
 		args = append(args, "-mdouble=64")
-	}
-	if strings.HasPrefix(target, "riscv32-") {
+	case "riscv32":
 		args = append(args, "-march=rv32imac", "-fforce-enable-int128")
-	}
-	if strings.HasPrefix(target, "riscv64-") {
+	case "riscv64":
 		args = append(args, "-march=rv64gc")
+	case "mips":
+		args = append(args, "-fno-pic")
+	}
+	if config.Target.SoftFloat {
+		// Use softfloat instead of floating point instructions. This is
+		// supported on many architectures.
+		args = append(args, "-msoft-float")
+	} else {
+		if strings.HasPrefix(target, "armv5") {
+			// On ARMv5 we need to explicitly enable hardware floating point
+			// instructions: Clang appears to assume the hardware doesn't have a
+			// FPU otherwise.
+			args = append(args, "-mfpu=vfpv2")
+		}
 	}
 
 	var once sync.Once

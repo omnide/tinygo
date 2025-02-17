@@ -169,7 +169,7 @@ func handleInterrupt() {
 		// save MSTATUS & MEPC, which could be overwritten by another CPU interrupt
 		mstatus := riscv.MSTATUS.Get()
 		mepc := riscv.MEPC.Get()
-		// Useing threshold to temporary disable this interrupts.
+		// Using threshold to temporary disable this interrupts.
 		// FYI: using CPU interrupt enable bit make runtime to loose interrupts.
 		reg := (*volatile.Register32)(unsafe.Add(unsafe.Pointer(&esp.INTERRUPT_CORE0.CPU_INT_PRI_0), interruptNumber*4))
 		thresholdSave := reg.Get()
@@ -222,7 +222,7 @@ func handleException(mcause uintptr) {
 	println("*** Exception: mcause:", mcause)
 	switch uint32(mcause & 0x1f) {
 	case 1:
-		println("***    virtual addess:", riscv.MTVAL.Get())
+		println("***    virtual address:", riscv.MTVAL.Get())
 	case 2:
 		println("***            opcode:", riscv.MTVAL.Get())
 	case 5:

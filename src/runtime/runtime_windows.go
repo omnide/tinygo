@@ -52,7 +52,16 @@ func mainCRTStartup() int {
 	stackTop = getCurrentStackPointer()
 	runMain()
 
-	// For libc compatibility.
+	// Exit via exit(0) instead of returning. This matches
+	// mingw-w64-crt/crt/crtexe.c, which exits using exit(0) instead of
+	// returning the return value.
+	// Exiting this way (instead of returning) also fixes an issue where not all
+	// output would be sent to stdout before exit.
+	// See: https://github.com/tinygo-org/tinygo/pull/4589
+	libc_exit(0)
+
+	// Unreachable, since we've already exited. But we need to return something
+	// here to make this valid Go code.
 	return 0
 }
 
@@ -129,7 +138,7 @@ func nanosecondsToTicks(ns int64) timeUnit {
 }
 
 func sleepTicks(d timeUnit) {
-	// Calcluate milliseconds from ticks (which have a resolution of 100ns),
+	// Calculate milliseconds from ticks (which have a resolution of 100ns),
 	// rounding up.
 	milliseconds := int64(d+9_999) / 10_000
 	for milliseconds != 0 {

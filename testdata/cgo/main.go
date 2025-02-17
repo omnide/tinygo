@@ -2,6 +2,7 @@ package main
 
 /*
 #include <stdio.h>
+#include <math.h>
 int fortytwo(void);
 #include "main.h"
 #include "test.h"
@@ -17,7 +18,10 @@ import "C"
 // static int headerfunc_static(int a) { return a - 1; }
 import "C"
 
-import "unsafe"
+import (
+	"syscall"
+	"unsafe"
+)
 
 func main() {
 	println("fortytwo:", C.fortytwo())
@@ -164,6 +168,15 @@ func main() {
 	println("C.GoString(nil):", C.GoString(nil))
 	println("len(C.GoStringN(nil, 0)):", len(C.GoStringN(nil, 0)))
 	println("len(C.GoBytes(nil, 0)):", len(C.GoBytes(nil, 0)))
+	println("len(C.GoBytes(C.CBytes(nil),0)):", len(C.GoBytes(C.CBytes(nil), 0)))
+	println(`rountrip CBytes:`, C.GoString((*C.char)(C.CBytes([]byte("hello\000")))))
+
+	// Check that errno is returned from the second return value, and that it
+	// matches the errno value that was just set.
+	_, errno := C.set_errno(C.EINVAL)
+	println("EINVAL:", errno == syscall.EINVAL)
+	_, errno = C.set_errno(C.EAGAIN)
+	println("EAGAIN:", errno == syscall.EAGAIN)
 
 	// libc: test whether C functions work at all.
 	buf1 := []byte("foobar\x00")
@@ -171,9 +184,17 @@ func main() {
 	C.strcpy((*C.char)(unsafe.Pointer(&buf2[0])), (*C.char)(unsafe.Pointer(&buf1[0])))
 	println("copied string:", string(buf2[:C.strlen((*C.char)(unsafe.Pointer(&buf2[0])))]))
 
+	// libc: test libm functions (normally bundled in libc)
+	println("CGo sqrt(3):", C.sqrt(3))
+	println("C   sqrt(3):", C.doSqrt(3))
+
 	// libc: test basic stdio functionality
 	putsBuf := []byte("line written using C puts\x00")
 	C.puts((*C.char)(unsafe.Pointer(&putsBuf[0])))
+
+	// libc: test whether printf works in C.
+	printfBuf := []byte("line written using C printf with value=%d\n\x00")
+	C.printf_single_int((*C.char)(unsafe.Pointer(&printfBuf[0])), -21)
 }
 
 func printUnion(union C.joined_t) C.joined_t {

@@ -64,6 +64,7 @@
 package reflect
 
 import (
+	"internal/gclayout"
 	"internal/itoa"
 	"unsafe"
 )
@@ -392,6 +393,22 @@ type Type interface {
 	// It panics if the type's Kind is not Func.
 	// It panics if i is not in the range [0, NumOut()).
 	Out(i int) Type
+
+	// OverflowComplex reports whether the complex128 x cannot be represented by type t.
+	// It panics if t's Kind is not Complex64 or Complex128.
+	OverflowComplex(x complex128) bool
+
+	// OverflowFloat reports whether the float64 x cannot be represented by type t.
+	// It panics if t's Kind is not Float32 or Float64.
+	OverflowFloat(x float64) bool
+
+	// OverflowInt reports whether the int64 x cannot be represented by type t.
+	// It panics if t's Kind is not Int, Int8, Int16, Int32, or Int64.
+	OverflowInt(x int64) bool
+
+	// OverflowUint reports whether the uint64 x cannot be represented by type t.
+	// It panics if t's Kind is not Uint, Uintptr, Uint8, Uint16, Uint32, or Uint64.
+	OverflowUint(x uint64) bool
 }
 
 // Constants for the 'meta' byte.
@@ -404,7 +421,7 @@ const (
 
 // The base type struct. All type structs start with this.
 type rawType struct {
-	meta uint8 // metadata byte, contains kind and flags (see contants above)
+	meta uint8 // metadata byte, contains kind and flags (see constants above)
 }
 
 // All types that have an element type: named, chan, slice, array, map (but not
@@ -420,6 +437,12 @@ type ptrType struct {
 	rawType
 	numMethod uint16
 	elem      *rawType
+}
+
+type interfaceType struct {
+	rawType
+	ptrTo *rawType
+	// TODO: methods
 }
 
 type arrayType struct {
@@ -774,7 +797,7 @@ func (t *rawType) rawFieldByNameFunc(match func(string) bool) (rawStructField, [
 				if match(name) {
 					found = append(found, result{
 						rawStructFieldFromPointer(descriptor, field.fieldType, data, flagsByte, name, offset),
-						append(ll.index, int(i)),
+						append(ll.index[:len(ll.index):len(ll.index)], int(i)),
 					})
 				}
 
@@ -787,7 +810,7 @@ func (t *rawType) rawFieldByNameFunc(match func(string) bool) (rawStructField, [
 
 					nextlevel = append(nextlevel, fieldWalker{
 						t:     embedded,
-						index: append(ll.index, int(i)),
+						index: append(ll.index[:len(ll.index):len(ll.index)], int(i)),
 					})
 				}
 
@@ -945,6 +968,26 @@ func (t *rawType) Align() int {
 	}
 }
 
+func (r *rawType) gcLayout() unsafe.Pointer {
+	kind := r.Kind()
+
+	if kind < String {
+		return gclayout.NoPtrs
+	}
+
+	switch kind {
+	case Pointer, UnsafePointer, Chan, Map:
+		return gclayout.Pointer
+	case String:
+		return gclayout.String
+	case Slice:
+		return gclayout.Slice
+	}
+
+	// Unknown (for now); let the conservative pointer scanning handle it
+	return nil
+}
+
 // FieldAlign returns the alignment if this type is used in a struct field. It
 // is currently an alias for Align() but this might change in the future.
 func (t *rawType) FieldAlign() int {
@@ -955,6 +998,10 @@ func (t *rawType) FieldAlign() int {
 // of type u.
 func (t *rawType) AssignableTo(u Type) bool {
 	if t == u.(*rawType) {
+		return true
+	}
+
+	if t.underlying() == u.(*rawType).underlying() && (!t.isNamed() || !u.(*rawType).isNamed()) {
 		return true
 	}
 
@@ -980,7 +1027,7 @@ func (t *rawType) Comparable() bool {
 	return (t.meta & flagComparable) == flagComparable
 }
 
-// isbinary() returns if the hashmapAlgorithmBinary functions can be used on this type
+// isBinary returns if the hashmapAlgorithmBinary functions can be used on this type
 func (t *rawType) isBinary() bool {
 	return (t.meta & flagIsBinary) == flagIsBinary
 }
@@ -1023,6 +1070,9 @@ func (t *rawType) NumMethod() int {
 		return int((*ptrType)(unsafe.Pointer(t)).numMethod)
 	case Struct:
 		return int((*structType)(unsafe.Pointer(t)).numMethod)
+	case Interface:
+		//FIXME: Use len(methods)
+		return (*interfaceType)(unsafe.Pointer(t)).ptrTo.NumMethod()
 	}
 
 	// Other types have no methods attached.  Note we don't panic here.
@@ -1060,8 +1110,10 @@ func (t *rawType) Name() string {
 		panic("corrupt name data")
 	}
 
-	if t.Kind() <= UnsafePointer {
+	if kind := t.Kind(); kind < UnsafePointer {
 		return t.Kind().String()
+	} else if kind == UnsafePointer {
+		return "Pointer"
 	}
 
 	return ""
@@ -1077,6 +1129,58 @@ func (t rawType) In(i int) Type {
 
 func (t rawType) Out(i int) Type {
 	panic("unimplemented: (reflect.Type).Out()")
+}
+
+// OverflowComplex reports whether the complex128 x cannot be represented by type t.
+// It panics if t's Kind is not Complex64 or Complex128.
+func (t rawType) OverflowComplex(x complex128) bool {
+	k := t.Kind()
+	switch k {
+	case Complex64:
+		return overflowFloat32(real(x)) || overflowFloat32(imag(x))
+	case Complex128:
+		return false
+	}
+	panic("reflect: OverflowComplex of non-complex type")
+}
+
+// OverflowFloat reports whether the float64 x cannot be represented by type t.
+// It panics if t's Kind is not Float32 or Float64.
+func (t rawType) OverflowFloat(x float64) bool {
+	k := t.Kind()
+	switch k {
+	case Float32:
+		return overflowFloat32(x)
+	case Float64:
+		return false
+	}
+	panic("reflect: OverflowFloat of non-float type")
+}
+
+// OverflowInt reports whether the int64 x cannot be represented by type t.
+// It panics if t's Kind is not Int, Int8, Int16, Int32, or Int64.
+func (t rawType) OverflowInt(x int64) bool {
+	k := t.Kind()
+	switch k {
+	case Int, Int8, Int16, Int32, Int64:
+		bitSize := t.Size() * 8
+		trunc := (x << (64 - bitSize)) >> (64 - bitSize)
+		return x != trunc
+	}
+	panic("reflect: OverflowInt of non-int type")
+}
+
+// OverflowUint reports whether the uint64 x cannot be represented by type t.
+// It panics if t's Kind is not Uint, Uintptr, Uint8, Uint16, Uint32, or Uint64.
+func (t rawType) OverflowUint(x uint64) bool {
+	k := t.Kind()
+	switch k {
+	case Uint, Uintptr, Uint8, Uint16, Uint32, Uint64:
+		bitSize := t.Size() * 8
+		trunc := (x << (64 - bitSize)) >> (64 - bitSize)
+		return x != trunc
+	}
+	panic("reflect: OverflowUint of non-uint type")
 }
 
 func (t rawType) Method(i int) Method {

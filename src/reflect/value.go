@@ -646,10 +646,10 @@ func (v Value) Slice3(i, j, k int) Value {
 	panic("unimplemented: (reflect.Value).Slice3()")
 }
 
-//go:linkname maplen runtime.hashmapLenUnsafePointer
+//go:linkname maplen runtime.hashmapLen
 func maplen(p unsafe.Pointer) int
 
-//go:linkname chanlen runtime.chanLenUnsafePointer
+//go:linkname chanlen runtime.chanLen
 func chanlen(p unsafe.Pointer) int
 
 // Len returns the length of this value for slices, strings, arrays, channels,
@@ -671,7 +671,7 @@ func (v Value) Len() int {
 	}
 }
 
-//go:linkname chancap runtime.chanCapUnsafePointer
+//go:linkname chancap runtime.chanCap
 func chancap(p unsafe.Pointer) int
 
 // Cap returns the capacity of this value for arrays, channels and slices.
@@ -686,6 +686,25 @@ func (v Value) Cap() int {
 		return int((*sliceHeader)(v.value).cap)
 	default:
 		panic(&ValueError{Method: "Cap", Kind: v.Kind()})
+	}
+}
+
+//go:linkname mapclear runtime.hashmapClear
+func mapclear(p unsafe.Pointer)
+
+// Clear clears the contents of a map or zeros the contents of a slice
+//
+// It panics if v's Kind is not Map or Slice.
+func (v Value) Clear() {
+	switch v.typecode.Kind() {
+	case Map:
+		mapclear(v.pointer())
+	case Slice:
+		hdr := (*sliceHeader)(v.value)
+		elemSize := v.typecode.underlying().elem().Size()
+		memzero(hdr.data, elemSize*hdr.len)
+	default:
+		panic(&ValueError{Method: "Clear", Kind: v.Kind()})
 	}
 }
 
@@ -887,27 +906,10 @@ func (v Value) Index(i int) Value {
 	}
 }
 
-// loadValue loads a value that may or may not be word-aligned. The number of
-// bytes given in size are loaded. The biggest possible size it can load is that
-// of an uintptr.
-func loadValue(ptr unsafe.Pointer, size uintptr) uintptr {
-	loadedValue := uintptr(0)
-	shift := uintptr(0)
-	for i := uintptr(0); i < size; i++ {
-		loadedValue |= uintptr(*(*byte)(ptr)) << shift
-		shift += 8
-		ptr = unsafe.Add(ptr, 1)
-	}
-	return loadedValue
-}
-
-// maskAndShift cuts out a part of a uintptr. Note that the offset may not be 0.
-func maskAndShift(value, offset, size uintptr) uintptr {
-	mask := ^uintptr(0) >> ((unsafe.Sizeof(uintptr(0)) - size) * 8)
-	return (uintptr(value) >> (offset * 8)) & mask
-}
-
 func (v Value) NumMethod() int {
+	if v.typecode == nil {
+		panic(&ValueError{Method: "reflect.Value.NumMethod", Kind: Invalid})
+	}
 	return v.typecode.NumMethod()
 }
 
@@ -965,13 +967,13 @@ func (v Value) MapKeys() []Value {
 	return keys
 }
 
-//go:linkname hashmapStringGet runtime.hashmapStringGetUnsafePointer
+//go:linkname hashmapStringGet runtime.hashmapStringGet
 func hashmapStringGet(m unsafe.Pointer, key string, value unsafe.Pointer, valueSize uintptr) bool
 
-//go:linkname hashmapBinaryGet runtime.hashmapBinaryGetUnsafePointer
+//go:linkname hashmapBinaryGet runtime.hashmapBinaryGet
 func hashmapBinaryGet(m unsafe.Pointer, key, value unsafe.Pointer, valueSize uintptr) bool
 
-//go:linkname hashmapInterfaceGet runtime.hashmapInterfaceGetUnsafePointer
+//go:linkname hashmapInterfaceGet runtime.hashmapInterfaceGet
 func hashmapInterfaceGet(m unsafe.Pointer, key interface{}, value unsafe.Pointer, valueSize uintptr) bool
 
 func (v Value) MapIndex(key Value) Value {
@@ -1018,7 +1020,7 @@ func (v Value) MapIndex(key Value) Value {
 //go:linkname hashmapNewIterator runtime.hashmapNewIterator
 func hashmapNewIterator() unsafe.Pointer
 
-//go:linkname hashmapNext runtime.hashmapNextUnsafePointer
+//go:linkname hashmapNext runtime.hashmapNext
 func hashmapNext(m unsafe.Pointer, it unsafe.Pointer, key, value unsafe.Pointer) bool
 
 func (v Value) MapRange() *MapIter {
@@ -1082,15 +1084,13 @@ func (v Value) Set(x Value) {
 	v.checkAddressable()
 	v.checkRO()
 	if !x.typecode.AssignableTo(v.typecode) {
-		panic("reflect: cannot set")
+		panic("reflect.Value.Set: value of type " + x.typecode.String() + " cannot be assigned to type " + v.typecode.String())
 	}
 
 	if v.typecode.Kind() == Interface && x.typecode.Kind() != Interface {
 		// move the value of x back into the interface, if possible
 		if x.isIndirect() && x.typecode.Size() <= unsafe.Sizeof(uintptr(0)) {
-			var value uintptr
-			memcpy(unsafe.Pointer(&value), x.value, x.typecode.Size())
-			x.value = unsafe.Pointer(value)
+			x.value = unsafe.Pointer(loadValue(x.value, x.typecode.Size()))
 		}
 
 		intf := composeInterface(unsafe.Pointer(x.typecode), x.value)
@@ -1101,12 +1101,11 @@ func (v Value) Set(x Value) {
 	}
 
 	size := v.typecode.Size()
-	xptr := x.value
 	if size <= unsafe.Sizeof(uintptr(0)) && !x.isIndirect() {
-		value := x.value
-		xptr = unsafe.Pointer(&value)
+		storeValue(v.value, size, uintptr(x.value))
+	} else {
+		memcpy(v.value, x.value, size)
 	}
-	memcpy(v.value, xptr, size)
 }
 
 func (v Value) SetZero() {
@@ -1263,7 +1262,9 @@ func (v Value) OverflowUint(x uint64) bool {
 }
 
 func (v Value) CanConvert(t Type) bool {
-	panic("unimplemented: (reflect.Value).CanConvert()")
+	// TODO: Optimize this to not actually perform a conversion
+	_, ok := convertOp(v, t)
+	return ok
 }
 
 func (v Value) Convert(t Type) Value {
@@ -1282,6 +1283,15 @@ func convertOp(src Value, typ Type) (Value, bool) {
 			typecode: typ.(*rawType),
 			value:    src.value,
 			flags:    src.flags,
+		}, true
+	}
+
+	if rtype := typ.(*rawType); rtype.Kind() == Interface && rtype.NumMethod() == 0 {
+		iface := composeInterface(unsafe.Pointer(src.typecode), src.value)
+		return Value{
+			typecode: rtype,
+			value:    unsafe.Pointer(&iface),
+			flags:    valueFlagExported,
 		}, true
 	}
 
@@ -1325,14 +1335,33 @@ func convertOp(src Value, typ Type) (Value, bool) {
 		*/
 
 	case Slice:
-		if typ.Kind() == String && !src.typecode.elem().isNamed() {
-			rtype := typ.(*rawType)
-
-			switch src.Type().Elem().Kind() {
-			case Uint8:
-				return cvtBytesString(src, rtype), true
-			case Int32:
-				return cvtRunesString(src, rtype), true
+		switch rtype := typ.(*rawType); rtype.Kind() {
+		case Array:
+			if src.typecode.elem() == rtype.elem() && rtype.Len() <= src.Len() {
+				return Value{
+					typecode: rtype,
+					value:    (*sliceHeader)(src.value).data,
+					flags:    src.flags | valueFlagIndirect,
+				}, true
+			}
+		case Pointer:
+			if rtype.Elem().Kind() == Array {
+				if src.typecode.elem() == rtype.elem().elem() && rtype.elem().Len() <= src.Len() {
+					return Value{
+						typecode: rtype,
+						value:    (*sliceHeader)(src.value).data,
+						flags:    src.flags & (valueFlagExported | valueFlagRO),
+					}, true
+				}
+			}
+		case String:
+			if !src.typecode.elem().isNamed() {
+				switch src.Type().Elem().Kind() {
+				case Uint8:
+					return cvtBytesString(src, rtype), true
+				case Int32:
+					return cvtRunesString(src, rtype), true
+				}
 			}
 		}
 
@@ -1502,7 +1531,8 @@ func MakeSlice(typ Type, len, cap int) Value {
 	ulen := uint(len)
 	ucap := uint(cap)
 	maxSize := (^uintptr(0)) / 2
-	elementSize := rtype.elem().Size()
+	elem := rtype.elem()
+	elementSize := elem.Size()
 	if elementSize > 1 {
 		maxSize /= uintptr(elementSize)
 	}
@@ -1516,7 +1546,9 @@ func MakeSlice(typ Type, len, cap int) Value {
 	var slice sliceHeader
 	slice.cap = uintptr(ucap)
 	slice.len = uintptr(ulen)
-	slice.data = alloc(size, nil)
+	layout := elem.gcLayout()
+
+	slice.data = alloc(size, layout)
 
 	return Value{
 		typecode: rtype,
@@ -1578,8 +1610,8 @@ type funcHeader struct {
 
 type SliceHeader struct {
 	Data uintptr
-	Len  uintptr
-	Cap  uintptr
+	Len  intw
+	Cap  intw
 }
 
 // Slice header that matches the underlying structure. Used for when we switch
@@ -1592,7 +1624,7 @@ type sliceHeader struct {
 
 type StringHeader struct {
 	Data uintptr
-	Len  uintptr
+	Len  intw
 }
 
 // Like sliceHeader, this type is used internally to make sure pointer and
@@ -1601,6 +1633,16 @@ type stringHeader struct {
 	data unsafe.Pointer
 	len  uintptr
 }
+
+// Verify SliceHeader and StringHeader sizes.
+// See https://github.com/tinygo-org/tinygo/pull/4156
+// and https://github.com/tinygo-org/tinygo/issues/1284.
+var (
+	_ [unsafe.Sizeof([]byte{})]byte = [unsafe.Sizeof(SliceHeader{})]byte{}
+	_ [unsafe.Sizeof([]byte{})]byte = [unsafe.Sizeof(sliceHeader{})]byte{}
+	_ [unsafe.Sizeof("")]byte       = [unsafe.Sizeof(StringHeader{})]byte{}
+	_ [unsafe.Sizeof("")]byte       = [unsafe.Sizeof(stringHeader{})]byte{}
+)
 
 type ValueError struct {
 	Method string
@@ -1670,7 +1712,7 @@ func buflen(v Value) (unsafe.Pointer, uintptr) {
 		buf = hdr.data
 		len = hdr.len
 	case Array:
-		if v.isIndirect() {
+		if v.isIndirect() || v.typecode.Size() > unsafe.Sizeof(uintptr(0)) {
 			buf = v.value
 		} else {
 			buf = unsafe.Pointer(&v.value)
@@ -1702,18 +1744,7 @@ func extendSlice(v Value, n int) sliceHeader {
 		old = *(*sliceHeader)(v.value)
 	}
 
-	var nbuf unsafe.Pointer
-	var nlen, ncap uintptr
-
-	if old.len+uintptr(n) > old.cap {
-		// we need to grow the slice
-		nbuf, nlen, ncap = sliceGrow(old.data, old.len, old.cap, old.cap+uintptr(n), v.typecode.elem().Size())
-	} else {
-		// we can reuse the slice we have
-		nbuf = old.data
-		nlen = old.len
-		ncap = old.cap
-	}
+	nbuf, nlen, ncap := sliceGrow(old.data, old.len, old.cap, old.len+uintptr(n), v.typecode.elem().Size())
 
 	return sliceHeader{
 		data: nbuf,
@@ -1787,22 +1818,22 @@ func (v Value) Grow(n int) {
 	slice.cap = newslice.cap
 }
 
-//go:linkname hashmapStringSet runtime.hashmapStringSetUnsafePointer
+//go:linkname hashmapStringSet runtime.hashmapStringSet
 func hashmapStringSet(m unsafe.Pointer, key string, value unsafe.Pointer)
 
-//go:linkname hashmapBinarySet runtime.hashmapBinarySetUnsafePointer
+//go:linkname hashmapBinarySet runtime.hashmapBinarySet
 func hashmapBinarySet(m unsafe.Pointer, key, value unsafe.Pointer)
 
-//go:linkname hashmapInterfaceSet runtime.hashmapInterfaceSetUnsafePointer
+//go:linkname hashmapInterfaceSet runtime.hashmapInterfaceSet
 func hashmapInterfaceSet(m unsafe.Pointer, key interface{}, value unsafe.Pointer)
 
-//go:linkname hashmapStringDelete runtime.hashmapStringDeleteUnsafePointer
+//go:linkname hashmapStringDelete runtime.hashmapStringDelete
 func hashmapStringDelete(m unsafe.Pointer, key string)
 
-//go:linkname hashmapBinaryDelete runtime.hashmapBinaryDeleteUnsafePointer
+//go:linkname hashmapBinaryDelete runtime.hashmapBinaryDelete
 func hashmapBinaryDelete(m unsafe.Pointer, key unsafe.Pointer)
 
-//go:linkname hashmapInterfaceDelete runtime.hashmapInterfaceDeleteUnsafePointer
+//go:linkname hashmapInterfaceDelete runtime.hashmapInterfaceDelete
 func hashmapInterfaceDelete(m unsafe.Pointer, key interface{})
 
 func (v Value) SetMapIndex(key, elem Value) {
@@ -1931,7 +1962,7 @@ func (v Value) FieldByNameFunc(match func(string) bool) Value {
 	return Value{}
 }
 
-//go:linkname hashmapMake runtime.hashmapMakeUnsafePointer
+//go:linkname hashmapMake runtime.hashmapMake
 func hashmapMake(keySize, valueSize uintptr, sizeHint uintptr, alg uint8) unsafe.Pointer
 
 // MakeMapWithSize creates a new map with the specified type and initial space
@@ -2009,6 +2040,10 @@ func MakeMap(typ Type) Value {
 
 func (v Value) Call(in []Value) []Value {
 	panic("unimplemented: (reflect.Value).Call()")
+}
+
+func (v Value) CallSlice(in []Value) []Value {
+	panic("unimplemented: (reflect.Value).CallSlice()")
 }
 
 func (v Value) Method(i int) Value {

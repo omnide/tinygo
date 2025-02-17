@@ -12,7 +12,7 @@ import (
 	"github.com/tinygo-org/tinygo/goenv"
 )
 
-var Musl = Library{
+var libMusl = Library{
 	name: "musl",
 	makeHeaders: func(target, includeDir string) error {
 		bits := filepath.Join(includeDir, "bits")
@@ -92,6 +92,8 @@ var Musl = Library{
 			"-Wno-ignored-pragmas",
 			"-Wno-tautological-constant-out-of-range-compare",
 			"-Wno-deprecated-non-prototype",
+			"-Wno-format",
+			"-Wno-parentheses",
 			"-Qunused-arguments",
 			// Select include dirs. Don't include standard library includes
 			// (that would introduce host dependencies and other complications),
@@ -114,16 +116,21 @@ var Musl = Library{
 			"env/*.c",
 			"errno/*.c",
 			"exit/*.c",
+			"fcntl/*.c",
 			"internal/defsysinfo.c",
 			"internal/libc.c",
 			"internal/syscall_ret.c",
 			"internal/vdso.c",
 			"legacy/*.c",
+			"locale/*.c",
 			"linux/*.c",
 			"malloc/*.c",
 			"malloc/mallocng/*.c",
 			"mman/*.c",
 			"math/*.c",
+			"misc/*.c",
+			"multibyte/*.c",
+			"signal/" + arch + "/*.s",
 			"signal/*.c",
 			"stdio/*.c",
 			"string/*.c",
@@ -131,10 +138,18 @@ var Musl = Library{
 			"thread/*.c",
 			"time/*.c",
 			"unistd/*.c",
+			"process/*.c",
 		}
+
 		if arch == "arm" {
 			// These files need to be added to the start for some reason.
 			globs = append([]string{"thread/arm/*.c"}, globs...)
+		}
+
+		if arch != "aarch64" && arch != "mips" {
+			//aarch64 and mips have no architecture specific code, either they
+			// are not supported or don't need any?
+			globs = append([]string{"process/" + arch + "/*.s"}, globs...)
 		}
 
 		var sources []string

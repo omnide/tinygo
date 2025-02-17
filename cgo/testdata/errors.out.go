@@ -1,9 +1,17 @@
 // CGo errors:
+//     testdata/errors.go:14:1: missing function name in #cgo noescape line
+//     testdata/errors.go:15:1: multiple function names in #cgo noescape line
 //     testdata/errors.go:4:2: warning: some warning
 //     testdata/errors.go:11:9: error: unknown type name 'someType'
-//     testdata/errors.go:22:5: warning: another warning
-//     testdata/errors.go:13:23: unexpected token ), expected end of expression
-//     testdata/errors.go:19:26: unexpected token ), expected end of expression
+//     testdata/errors.go:31:5: warning: another warning
+//     testdata/errors.go:18:23: unexpected token ), expected end of expression
+//     testdata/errors.go:26:26: unexpected token ), expected end of expression
+//     testdata/errors.go:21:33: unexpected token ), expected end of expression
+//     testdata/errors.go:22:34: unexpected token ), expected end of expression
+//     -: unexpected token INT, expected end of expression
+//     testdata/errors.go:35:35: unexpected number of parameters: expected 2, got 3
+//     testdata/errors.go:36:31: unexpected number of parameters: expected 2, got 1
+//     testdata/errors.go:3:1: function "unusedFunction" in #cgo noescape line is not used
 
 // Type checking errors after CGo processing:
 //     testdata/errors.go:102: cannot use 2 << 10 (untyped int constant 2048) as C.char value in variable declaration (overflows)
@@ -11,9 +19,15 @@
 //     testdata/errors.go:108: undefined: C.SOME_CONST_1
 //     testdata/errors.go:110: cannot use C.SOME_CONST_3 (untyped int constant 1234) as byte value in variable declaration (overflows)
 //     testdata/errors.go:112: undefined: C.SOME_CONST_4
+//     testdata/errors.go:114: undefined: C.SOME_CONST_b
+//     testdata/errors.go:116: undefined: C.SOME_CONST_startspace
+//     testdata/errors.go:119: undefined: C.SOME_PARAM_CONST_invalid
+//     testdata/errors.go:122: undefined: C.add_toomuch
+//     testdata/errors.go:123: undefined: C.add_toolittle
 
 package main
 
+import "syscall"
 import "unsafe"
 
 var _ unsafe.Pointer
@@ -38,6 +52,20 @@ func C.GoBytes(ptr unsafe.Pointer, length C.int) []byte {
 	return C.__GoBytes(ptr, uintptr(length))
 }
 
+//go:linkname C.__CBytes runtime.cgo_CBytes
+func C.__CBytes([]byte) unsafe.Pointer
+
+func C.CBytes(b []byte) unsafe.Pointer {
+	return C.__CBytes(b)
+}
+
+//go:linkname C.__get_errno_num runtime.cgo_errno
+func C.__get_errno_num() uintptr
+
+func C.__get_errno() error {
+	return syscall.Errno(C.__get_errno_num())
+}
+
 type (
 	C.char      uint8
 	C.schar     int8
@@ -58,3 +86,4 @@ type C.struct_point_t struct {
 type C.point_t = C.struct_point_t
 
 const C.SOME_CONST_3 = 1234
+const C.SOME_PARAM_CONST_valid = 3 + 4

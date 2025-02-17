@@ -2,70 +2,9 @@ package sync
 
 import (
 	"internal/task"
-	_ "unsafe"
-
-	"runtime/volatile"
 )
 
-type Mutex struct {
-	state   uint8 // Set to non-zero if locked.
-	blocked task.Stack
-}
-
-//go:linkname scheduleTask runtime.runqueuePushBack
-func scheduleTask(*task.Task)
-
-func (m *Mutex) Lock() {
-	if m.islocked() {
-		// Push self onto stack of blocked tasks, and wait to be resumed.
-		m.blocked.Push(task.Current())
-		task.Pause()
-		return
-	}
-
-	m.setlock(true)
-}
-
-func (m *Mutex) Unlock() {
-	if !m.islocked() {
-		panic("sync: unlock of unlocked Mutex")
-	}
-
-	// Wake up a blocked task, if applicable.
-	if t := m.blocked.Pop(); t != nil {
-		scheduleTask(t)
-	} else {
-		m.setlock(false)
-	}
-}
-
-// TryLock tries to lock m and reports whether it succeeded.
-//
-// Note that while correct uses of TryLock do exist, they are rare,
-// and use of TryLock is often a sign of a deeper problem
-// in a particular use of mutexes.
-func (m *Mutex) TryLock() bool {
-	if m.islocked() {
-		return false
-	}
-	m.Lock()
-	return true
-}
-
-func (m *Mutex) islocked() bool {
-	return volatile.LoadUint8(&m.state) != 0
-}
-
-func (m *Mutex) setlock(b bool) {
-	volatile.StoreUint8(&m.state, boolToU8(b))
-}
-
-func boolToU8(b bool) uint8 {
-	if b {
-		return 1
-	}
-	return 0
-}
+type Mutex = task.Mutex
 
 type RWMutex struct {
 	// waitingWriters are all of the tasks waiting for write locks.

@@ -1,4 +1,7 @@
-//go:build tinygo.wasm && !wasm_unknown
+//go:build tinygo.wasm && !wasm_unknown && !wasip2
+
+// This file is for wasm/wasip1 and for wasm/js, which both use much of the
+// WASIp1 API.
 
 package runtime
 
@@ -20,6 +23,11 @@ func fd_write(id uint32, iovs *__wasi_iovec_t, iovs_len uint, nwritten *uint) (e
 //
 //go:wasmimport wasi_snapshot_preview1 proc_exit
 func proc_exit(exitcode uint32)
+
+// Flush stdio on exit.
+//
+//export __stdio_exit
+func __stdio_exit()
 
 const (
 	putcharBufferSize = 120
@@ -72,7 +80,15 @@ func abort() {
 
 //go:linkname syscall_Exit syscall.Exit
 func syscall_Exit(code int) {
+	// Flush stdio buffers.
+	__stdio_exit()
+
+	// Exit the program.
 	proc_exit(uint32(code))
+}
+
+func mainReturnExit() {
+	syscall_Exit(0)
 }
 
 // TinyGo does not yet support any form of parallelism on WebAssembly, so these
@@ -96,3 +112,8 @@ func hardwareRand() (n uint64, ok bool) {
 //
 //export arc4random
 func libc_arc4random() uint32
+
+// int *__errno_location(void);
+//
+//export __errno_location
+func libc_errno_location() *int32

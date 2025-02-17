@@ -10,8 +10,8 @@ import (
 	"bytes"
 	"device/arm"
 	"device/sam"
-	"encoding/binary"
 	"errors"
+	"internal/binary"
 	"runtime/interrupt"
 	"unsafe"
 )
@@ -1587,7 +1587,7 @@ func (spi SPI) Transfer(w byte) (byte, error) {
 	return byte(spi.Bus.DATA.Get()), nil
 }
 
-// Tx handles read/write operation for SPI interface. Since SPI is a syncronous write/read
+// Tx handles read/write operation for SPI interface. Since SPI is a synchronous write/read
 // interface, there must always be the same number of bytes written as bytes read.
 // The Tx method knows about this, and offers a few different ways of calling it.
 //
@@ -1720,7 +1720,7 @@ func (tcc *TCC) Configure(config PWMConfig) error {
 	for tcc.timer().SYNCBUSY.Get() != 0 {
 	}
 
-	// Return any error that might have occured in the tcc.setPeriod call.
+	// Return any error that might have occurred in the tcc.setPeriod call.
 	return err
 }
 
@@ -1928,7 +1928,7 @@ var pinTimerMapping = [...]struct{ F, G uint8 }{
 	PB02 / 2: {pinTCC2_2, 0},
 }
 
-// findPinPadMapping returns the pin mode (PinTCCF or PinTCCG) and the channel
+// findPinTimerMapping returns the pin mode (PinTCCF or PinTCCG) and the channel
 // number for a given timer and pin. A zero PinMode is returned if no mapping
 // could be found.
 func findPinTimerMapping(timer uint8, pin Pin) (PinMode, uint8) {

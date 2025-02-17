@@ -33,7 +33,9 @@ func TestClangAttributes(t *testing.T) {
 		"k210",
 		"nintendoswitch",
 		"riscv-qemu",
-		"wasi",
+		"tkey",
+		"wasip1",
+		"wasip2",
 		"wasm",
 		"wasm-unknown",
 	}
@@ -52,10 +54,17 @@ func TestClangAttributes(t *testing.T) {
 	for _, options := range []*compileopts.Options{
 		{GOOS: "linux", GOARCH: "386"},
 		{GOOS: "linux", GOARCH: "amd64"},
-		{GOOS: "linux", GOARCH: "arm", GOARM: "5"},
-		{GOOS: "linux", GOARCH: "arm", GOARM: "6"},
-		{GOOS: "linux", GOARCH: "arm", GOARM: "7"},
+		{GOOS: "linux", GOARCH: "arm", GOARM: "5,softfloat"},
+		{GOOS: "linux", GOARCH: "arm", GOARM: "6,softfloat"},
+		{GOOS: "linux", GOARCH: "arm", GOARM: "7,softfloat"},
+		{GOOS: "linux", GOARCH: "arm", GOARM: "5,hardfloat"},
+		{GOOS: "linux", GOARCH: "arm", GOARM: "6,hardfloat"},
+		{GOOS: "linux", GOARCH: "arm", GOARM: "7,hardfloat"},
 		{GOOS: "linux", GOARCH: "arm64"},
+		{GOOS: "linux", GOARCH: "mips", GOMIPS: "hardfloat"},
+		{GOOS: "linux", GOARCH: "mipsle", GOMIPS: "hardfloat"},
+		{GOOS: "linux", GOARCH: "mips", GOMIPS: "softfloat"},
+		{GOOS: "linux", GOARCH: "mipsle", GOMIPS: "softfloat"},
 		{GOOS: "darwin", GOARCH: "amd64"},
 		{GOOS: "darwin", GOARCH: "arm64"},
 		{GOOS: "windows", GOARCH: "amd64"},
@@ -65,6 +74,9 @@ func TestClangAttributes(t *testing.T) {
 		name := "GOOS=" + options.GOOS + ",GOARCH=" + options.GOARCH
 		if options.GOARCH == "arm" {
 			name += ",GOARM=" + options.GOARM
+		}
+		if options.GOARCH == "mips" || options.GOARCH == "mipsle" {
+			name += ",GOMIPS=" + options.GOMIPS
 		}
 		t.Run(name, func(t *testing.T) {
 			testClangAttributes(t, options)

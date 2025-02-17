@@ -30,8 +30,11 @@ var Keys = []string{
 }
 
 func init() {
-	if Get("GOARCH") == "arm" {
+	switch Get("GOARCH") {
+	case "arm":
 		Keys = append(Keys, "GOARM")
+	case "mips", "mipsle":
+		Keys = append(Keys, "GOMIPS")
 	}
 }
 
@@ -128,6 +131,13 @@ func Get(name string) string {
 		// difference between ARMv6 and ARMv7. ARMv6 binaries are much smaller,
 		// especially when floating point instructions are involved.
 		return "6"
+	case "GOMIPS":
+		gomips := os.Getenv("GOMIPS")
+		if gomips == "" {
+			// Default to hardfloat (this matches the Go toolchain).
+			gomips = "hardfloat"
+		}
+		return gomips
 	case "GOROOT":
 		readGoEnvVars()
 		return goEnvVars.GOROOT
@@ -159,6 +169,11 @@ func Get(name string) string {
 		}
 
 		return findWasmOpt()
+	case "WASMTOOLS":
+		if path := os.Getenv("WASMTOOLS"); path != "" {
+			return path
+		}
+		return "wasm-tools"
 	default:
 		return ""
 	}

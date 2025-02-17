@@ -84,6 +84,19 @@ func ticks() timeUnit {
 	return timeUnit(ticksToNanoseconds(timeUnit(getArmSystemTick())))
 }
 
+// timeOffset is how long the monotonic clock started after the Unix epoch. It
+// should be a positive integer under normal operation or zero when it has not
+// been set.
+var timeOffset int64
+
+//go:linkname now time.now
+func now() (sec int64, nsec int32, mono int64) {
+	mono = nanotime()
+	sec = (mono + timeOffset) / (1000 * 1000 * 1000)
+	nsec = int32((mono + timeOffset) - sec*(1000*1000*1000))
+	return
+}
+
 var stdoutBuffer = make([]byte, 120)
 var position = 0
 
@@ -96,6 +109,14 @@ func putchar(c byte) {
 
 	stdoutBuffer[position] = c
 	position++
+}
+
+func buffered() int {
+	return 0
+}
+
+func getchar() byte {
+	return 0
 }
 
 func abort() {
@@ -172,9 +193,9 @@ func setupEnv() {
 func setupHeap() {
 	if heapStart != 0 {
 		if debugInit {
-			print("Heap already overrided by hblauncher")
+			print("Heap already overridden by hblauncher")
 		}
-		// Already overrided
+		// Already overridden
 		return
 	}
 
@@ -312,4 +333,10 @@ func svcGetInfo(output *uint64, id0 uint32, handle uint32, id1 uint64) uint64
 func hardwareRand() (n uint64, ok bool) {
 	// TODO: see whether there is a RNG and use it.
 	return 0, false
+}
+
+func libc_errno_location() *int32 {
+	// CGo is unavailable, so this function should be unreachable.
+	runtimePanic("runtime: no cgo errno")
+	return nil
 }

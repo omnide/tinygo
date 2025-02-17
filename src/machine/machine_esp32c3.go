@@ -312,7 +312,7 @@ func (uart *UART) configure(config UARTConfig, regs registerSet) error {
 
 	initUARTClock(uart.Bus, regs)
 
-	// - disbale TX/RX clock to make sure the UART transmitter or receiver is not at work during configuration
+	// - disable TX/RX clock to make sure the UART transmitter or receiver is not at work during configuration
 	uart.Bus.SetCLK_CONF_TX_SCLK_EN(0)
 	uart.Bus.SetCLK_CONF_RX_SCLK_EN(0)
 
@@ -480,7 +480,7 @@ func (uart *UART) enableTransmitter() {
 	uart.Bus.SetCONF0_TXFIFO_RST(0)
 	// TXINFO empty threshold is when txfifo_empty_int interrupt produced after the amount of data in Tx-FIFO is less than this register value.
 	uart.Bus.SetCONF1_TXFIFO_EMPTY_THRHD(uart_empty_thresh_default)
-	// we are not using interrut on TX since write we are waiting for FIFO to have space.
+	// we are not using interrupt on TX since write we are waiting for FIFO to have space.
 	// uart.Bus.INT_ENA.SetBits(esp.UART_INT_ENA_TXFIFO_EMPTY_INT_ENA)
 }
 

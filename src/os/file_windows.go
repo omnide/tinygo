@@ -59,6 +59,16 @@ func Pipe() (r *File, w *File, err error) {
 	return
 }
 
+func (f *unixFileHandle) Truncate(size int64) error {
+	return ErrNotImplemented
+}
+
+// Truncate changes the size of the named file.
+// If the file is a symbolic link, it changes the size of the link's target.
+func Truncate(name string, size int64) error {
+	return &PathError{Op: "truncate", Path: name, Err: ErrNotImplemented}
+}
+
 func tempDir() string {
 	n := uint32(syscall.MAX_PATH)
 	for {
@@ -104,6 +114,15 @@ func (f unixFileHandle) Seek(offset int64, whence int) (int64, error) {
 
 func (f unixFileHandle) Sync() error {
 	return ErrNotImplemented
+}
+
+// Truncate changes the size of the named file.
+// If the file is a symbolic link, it changes the size of the link's target.
+func (f *File) Truncate(size int64) error {
+	if f.handle == nil {
+		return &PathError{Op: "truncate", Path: f.name, Err: ErrClosed}
+	}
+	return Truncate(f.name, size)
 }
 
 // isWindowsNulName reports whether name is os.DevNull ('NUL') on Windows.
